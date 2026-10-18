@@ -8,7 +8,7 @@
 #   TIMSIM_REPO=<url>     clone from a different repository (forks, testing)
 set -e
 
-REPO_URL="${TIMSIM_REPO:-https://github.com/YOUR_GITHUB_USERNAME/timsim.git}"
+REPO_URL="${TIMSIM_REPO:-https://github.com/krishnacode22/TimSim.git}"
 PREFIX="${PREFIX:-/usr/local}"
 
 echo "========================================"

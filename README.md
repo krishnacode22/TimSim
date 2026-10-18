@@ -7,15 +7,15 @@ You enter the transition rules, TimSim validates them, and then runs the machine
 ## Install (Linux / macOS)
 
 ```sh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/timsim/main/install.sh)"
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.sh)"
 ```
 
-Needs `git`, `make` and a C compiler (`cc`, `gcc` or `clang`). It builds from source and installs `timsim` to `/usr/local/bin` (asks for `sudo` only if needed).
+Needs `git`, `make` and a C compiler (`cc`, `gcc` or `clang`). It builds from source and installs `TimSim` to `/usr/local/bin` (asks for `sudo` only if needed).
 
 Install without admin rights:
 
 ```sh
-PREFIX=$HOME/.local sh -c "$(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/timsim/main/install.sh)"
+PREFIX=$HOME/.local sh -c "$(curl -fsSL https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.sh)"
 ```
 
 Windows: use WSL.
@@ -23,8 +23,8 @@ Windows: use WSL.
 ### Build manually
 
 ```sh
-git clone https://github.com/YOUR_GITHUB_USERNAME/timsim.git
-cd timsim
+git clone https://github.com/krishnacode22/TimSim.git
+cd TimSim
 make            # builds ./timsim
 make test       # runs the sample machines
 sudo make install
