@@ -1,31 +1,61 @@
 #!/bin/sh
-# TimSim installer.  Works with plain `sh` (no bash needed).
-#
-#   sh -c "$(curl -fsSL https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.sh)"
-#
-# Optional environment variables:
-#   PREFIX=$HOME/.local   install somewhere else (no sudo needed if writable)
-#   TIMSIM_REPO=<url>     clone from a different repository (forks, testing)
+# TimSim automated installer. 
+# Works with plain `sh` and auto-installs missing dependencies.
 set -e
 
 REPO_URL="${TIMSIM_REPO:-https://github.com/krishnacode22/TimSim.git}"
 PREFIX="${PREFIX:-/usr/local}"
 
 echo "========================================"
-echo "   Installing TimSim..."
+echo "   Installing TimSim & Dependencies..."
 echo "========================================"
 
-# Check the tools we need
-for tool in git make; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-        echo "Error: '$tool' is not installed. Please install it and run this again."
-        exit 1
+# Function to check and auto-install missing tools
+install_dependencies() {
+    MISSING_TOOLS=""
+    
+    if ! command -v git >/dev/null 2>&1; then MISSING_TOOLS="$MISSING_TOOLS git"; fi
+    if ! command -v make >/dev/null 2>&1; then MISSING_TOOLS="$MISSING_TOOLS make"; fi
+    if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1 && ! command -v clang >/dev/null 2>&1; then
+        MISSING_TOOLS="$MISSING_TOOLS compiler"
     fi
-done
-if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1 && ! command -v clang >/dev/null 2>&1; then
-    echo "Error: no C compiler found (cc, gcc or clang). Please install one and try again."
-    exit 1
-fi
+
+    if [ -n "$MISSING_TOOLS" ]; then
+        echo "Missing required tools:$MISSING_TOOLS. Installing them automatically..."
+        
+        # Check if sudo is available or if we are root
+        SUDO=""
+        if [ "$(id -u)" -ne 0 ]; then
+            if command -v sudo >/dev/null 2>&1; then
+                SUDO="sudo"
+            else
+                echo "Error: Missing dependencies ($MISSING_TOOLS) and 'sudo' is not available to install them."
+                echo "Please install git, make, and a C compiler manually and run this script again."
+                exit 1
+            fi
+        fi
+
+        # Detect package manager and install dependencies
+        if command -v apt-get >/dev/null 2>&1; then
+            $SUDO apt-get update &&$SUDO apt-get install -y git make build-essential
+        elif command -v dnf >/dev/null 2>&1; then
+            $SUDO dnf install -y git make gcc
+        elif command -v pacman >/dev/null 2>&1; then
+            $SUDO pacman -S --noconfirm git make gcc
+        elif command -v apk >/dev/null 2>&1; then
+            $SUDO apk add --no-cache git make build-base
+        elif command -v brew >/dev/null 2>&1; then
+            brew install git make
+        else
+            echo "Error: Could not detect a supported package manager (apt, dnf, pacman, apk, brew)."
+            echo "Please manually install: git, make, and a C compiler."
+            exit 1
+        fi
+    fi
+}
+
+# Run dependency check and installation
+install_dependencies
 
 # Clone into a temporary directory that is always cleaned up
 TEMP_DIR=$(mktemp -d)
@@ -39,7 +69,7 @@ fi
 
 cd "$TEMP_DIR/timsim"
 
-echo "Building..."
+echo "Building TimSim..."
 if ! make >/dev/null; then
     echo "Error: build failed. Run 'make' inside the repository to see the full error."
     exit 1
@@ -50,7 +80,7 @@ echo "Installing to $PREFIX/bin ..."
 if mkdir -p "$PREFIX/bin" 2>/dev/null && [ -w "$PREFIX/bin" ]; then
     make install PREFIX="$PREFIX" >/dev/null
 else
-    if ! command -v sudo >/dev/null 2>&1; then
+    if [ -z "$SUDO" ] && ! command -v sudo >/dev/null 2>&1; then
         echo "Error: $PREFIX/bin is not writable and 'sudo' is not available."
         echo "Try again with a folder you own, e.g.:  PREFIX=\$HOME/.local sh install.sh"
         exit 1
