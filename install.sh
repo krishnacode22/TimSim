@@ -1,7 +1,7 @@
 #!/bin/sh
 # TimSim installer.  Works with plain `sh` (no bash needed).
 #
-#   sh -c "$(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/timsim/main/install.sh)"
+#   sh -c "$(curl -fsSL https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.sh)"
 #
 # Optional environment variables:
 #   PREFIX=$HOME/.local   install somewhere else (no sudo needed if writable)
