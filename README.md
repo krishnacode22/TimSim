@@ -16,7 +16,7 @@
 
 ---
 
-## 🚀 Quick Installation
+## Quick Installation
 
 ### Linux / macOS / WSL
 
@@ -52,7 +52,7 @@ You can also download `timsim.exe` from the Releases page and run it from anywhe
 
 ---
 
-## 💻 Usage
+## Usage
 
 ```sh
 timsim                          # interactive: type the machine in
@@ -106,7 +106,7 @@ timsim examples/binary_increment.tm -i 1011 -q     # prints ACCEPTED, then 1100
 
 ---
 
-## 📄 Machine files
+## Machine files
 
 Plain text, one item per line. Text after `#` is a comment.
 
@@ -136,7 +136,7 @@ tests/bad/many_errors.tm:6: unknown word 'bogus' (use start, accept, reject or l
 
 ---
 
-## 🔄 Updates
+## Updates
 
 - Once a day, when you start TimSim in a terminal, it asks GitHub for the newest `VERSION` file. If a newer version exists you are asked: **[y]es / [n]o / [s]kip this version**.
 - Nothing is installed without your answer. The check never runs in scripts (`--input`, `--check`, pipes) and never blocks for more than about 3 seconds.
@@ -146,7 +146,7 @@ tests/bad/many_errors.tm:6: unknown word 'bogus' (use start, accept, reject or l
 
 ---
 
-## 📐 Rules
+## Rules
 
 | Feature | Specification / Constraint |
 | --- | --- |
@@ -164,7 +164,7 @@ A valid transition table does not prove that a machine is correct or that it hal
 
 ---
 
-## 📂 Example machines (`examples/`)
+## Example machines (`examples/`)
 
 | File | Description | Try |
 | --- | --- | --- |
@@ -176,7 +176,7 @@ A valid transition table does not prove that a machine is correct or that it hal
 
 ---
 
-## 🛠️ Build from source
+## Build from source
 
 ```sh
 git clone https://github.com/krishnacode22/TimSim.git
@@ -199,18 +199,7 @@ The version number lives in the `VERSION` file only. It is compiled into the pro
 
 Do step 3 before step 4 (or together). Once `VERSION` on `main` is newer, every installed TimSim starts offering the update, and the Windows installer must already find the new `.exe`.
 
----
 
-## 🗓️ Roadmap
-
-- [x] **Phase 1:** Transition rule input
-- [x] **Phase 2:** Validation and deterministic conflict detection
-- [x] **Phase 3:** Execution engine with tracing
-- [x] **Phase 4:** Command line options, machine files, built-in demo, update checker, installer
-- [ ] **Phase 5:** Terminal UI
-
----
-
-## 📜 License
+## License
 
 Distributed under the **MIT License**. See `LICENSE` for more details.
