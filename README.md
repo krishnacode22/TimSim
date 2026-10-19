@@ -188,17 +188,6 @@ sudo make install
 
 Uninstall with `sudo make uninstall` (or `sudo rm /usr/local/bin/timsim`).
 
-### Releasing a new version
-
-The version number lives in the `VERSION` file only. It is compiled into the program, and the update checker compares it with the `VERSION` file on the `main` branch.
-
-1. Change `VERSION` (for example to `1.2.0`) and run `make test`.
-2. Build the Windows program: `make windows` (needs `mingw-w64`, for example `sudo apt install gcc-mingw-w64-x86-64`). This creates a static `timsim.exe`.
-3. On GitHub, create a release (tag `v1.2.0`) and upload `timsim.exe`. **The file must be named exactly `timsim.exe`**, because `install.ps1` downloads `releases/latest/download/timsim.exe`.
-4. Push the new `VERSION` to `main`.
-
-Do step 3 before step 4 (or together). Once `VERSION` on `main` is newer, every installed TimSim starts offering the update, and the Windows installer must already find the new `.exe`.
-
 
 ## License
 
