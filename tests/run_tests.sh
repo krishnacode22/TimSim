@@ -94,6 +94,13 @@ expect "step mode implies trace" 0 "Execution trace" sh -c "$STEPS | '$BIN' exam
 expect "step mode finishes"      0 "RESULT: ACCEPTED" sh -c "$STEPS | '$BIN' examples/binary_increment.tm -i 1011 --step"
 if "$BIN" examples/binary_increment.tm -i 1011 -t | grep -q "Press Enter"; then bad "trace without --step does not pause"; else ok "trace without --step does not pause"; fi
 
+echo "Animation"
+expect "animate falls back when piped" 0 "RESULT: ACCEPTED" "$BIN" examples/binary_increment.tm -i 1011 --animate 20
+if "$BIN" examples/binary_increment.tm -i 1011 --animate 20 | grep -q "$(printf '\r')"; then bad "animate is silent when piped"; else ok "animate is silent when piped"; fi
+expect "bad animate delay"      2 "delay must be"        "$BIN" examples/binary_increment.tm -i 1011 --animate 5
+expect "animate needs a value"  2 "needs a value"        "$BIN" examples/binary_increment.tm -i 1011 --animate
+expect "step and animate clash" 2 "can not be used together" "$BIN" examples/binary_increment.tm -i 1011 --step --animate 20
+
 echo "Interactive mode"
 expect "typed-in session"        0 "RESULT: ACCEPTED"  sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/binary_increment.txt'"
 expect "transcript accept"       0 "RESULT: ACCEPTED"  sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/even_zeros_accept.txt'"
@@ -139,6 +146,8 @@ if script -qec true /dev/null >/dev/null 2>&1; then
     echo "1 -" > "$TMP/cache/timsim/update_check"   # pretend the last check was long ago
     out=$(printf 'n\n1011\nn\nn\n' | script -qec "$BIN examples/binary_increment.tm" /dev/null 2>&1)
     if printf '%s' "$out" | grep -q "new version of TimSim is available"; then ok "re-checks after a day"; else bad "re-checks after a day"; fi
+    out=$(printf '' | TIMSIM_NO_UPDATE_CHECK=1 script -qec "$BIN examples/binary_increment.tm -i 1011 --animate 20" /dev/null 2>&1)
+    if printf '%s' "$out" | grep -q "RESULT: ACCEPTED" && printf '%s' "$out" | grep -q "$(printf '\r')"; then ok "animate redraws in a tty"; else bad "animate redraws in a tty"; fi
     export TIMSIM_NO_UPDATE_CHECK=1
 else
     echo "  SKIP  automatic check tests (script(1) with -c not available)"

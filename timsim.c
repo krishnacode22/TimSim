@@ -52,6 +52,8 @@
 #define MAX_INPUT 200         // maximum length of the input string
 #define MAX_STEP_LIMIT 100000 // largest step limit the user can choose
 #define DEFAULT_STEP_LIMIT 1000
+#define MIN_ANIMATE 10        // --animate delay in milliseconds
+#define MAX_ANIMATE 2000
 #define BLANK '_'             // the blank symbol of the tape
 #define TAPE_SIZE 20001       // fixed tape size (the head can never go past its ends, see Section-7 and Section-9)
 #define TAPE_START 10000      // the head starts in the middle, so it has room on both sides
@@ -124,6 +126,19 @@ static void init_colors(int mode)
 	}
 }
 
+// Stops for the given number of milliseconds (used by --animate).
+static void sleep_ms(int ms)
+{
+#ifdef _WIN32
+	Sleep((DWORD)ms);
+#else
+	struct timespec ts;
+	ts.tv_sec = ms / 1000;
+	ts.tv_nsec = (long)(ms % 1000) * 1000000L;
+	nanosleep(&ts, NULL);
+#endif
+}
+
 // Reads one yes/no answer. y, yes, n and no (any case) are all accepted, so every
 // question in TimSim behaves the same way. Returns 1 for yes, 0 for no and -1 when
 // the input ended.
@@ -185,6 +200,7 @@ int main(int argc, char *argv[])
 	int show_version = 0;
 	int cli_trace = 0;
 	int step_mode = 0;            // --step: wait for Enter before every transition
+	int animate_ms = 0;           // --animate: redraw the tape every N milliseconds
 	int quiet = 0;
 	int check_only = 0;
 	int demo = 0;
@@ -200,6 +216,7 @@ int main(int argc, char *argv[])
 		int is_input = (strcmp(arg, "-i") == 0 || strcmp(arg, "--input") == 0);
 		int is_limit = (strcmp(arg, "-l") == 0 || strcmp(arg, "--limit") == 0);
 		int is_run = (strcmp(arg, "--run") == 0);
+		int is_animate = (strcmp(arg, "--animate") == 0);
 
 		if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) show_help = 1;
 		else if (strcmp(arg, "-v") == 0 || strcmp(arg, "--version") == 0) show_version = 1;
@@ -223,7 +240,7 @@ int main(int argc, char *argv[])
 				return 2;
 			}
 		}
-		else if (is_input || is_limit || is_run)
+		else if (is_input || is_limit || is_run || is_animate)
 		{
 			if (a + 1 >= argc)
 			{
@@ -243,6 +260,17 @@ int main(int argc, char *argv[])
 					return 2;
 				}
 				cli_limit = val;
+			}
+			else if (is_animate)
+			{
+				used = -1;
+				if (sscanf(argv[a], " %ld %n", &val, &used) != 1 || argv[a][used] != '\0'
+					|| val < MIN_ANIMATE || val > MAX_ANIMATE)
+				{
+					fprintf(stderr, "%stimsim: --animate delay must be a whole number from %d to %d ms.%s\n", E_RED, MIN_ANIMATE, MAX_ANIMATE, E_RESET);
+					return 2;
+				}
+				animate_ms = (int)val;
 			}
 			else
 			{
@@ -270,11 +298,18 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	// --step needs the trace, otherwise there is nothing to step through
+	// both modes need the trace, otherwise there is nothing to show
 	if (step_mode) cli_trace = 1;
+	if (animate_ms > 0) cli_trace = 1;
 
 	// colour is decided once, before anything is printed; -q output always stays plain
 	init_colors(quiet ? 2 : color_mode);
+
+	if (step_mode && animate_ms > 0)
+	{
+		fprintf(stderr, "%stimsim: --step and --animate can not be used together.%s\n", E_RED, E_RESET);
+		return 2;
+	}
 
 	if (show_help)
 	{
@@ -294,6 +329,7 @@ int main(int argc, char *argv[])
 		printf("      --check          only validate FILE, do not run it\n");
 		printf("      --demo           run the built-in binary incrementer\n");
 		printf("      --step           pause between steps (press Enter); turns the trace on\n");
+		printf("      --animate MS     redraw the tape every MS ms (%d to %d; needs a terminal)\n", MIN_ANIMATE, MAX_ANIMATE);
 		printf("      --check-update   check GitHub for a newer version\n");
 		printf("      --update         install the newest version from GitHub\n");
 		printf("      --no-update-check  skip the automatic daily update check\n");
@@ -1304,6 +1340,9 @@ int main(int argc, char *argv[])
 			break;
 		}
 
+		// animation only makes sense on a terminal; when piped, --animate behaves like -t
+		int animate = (animate_ms > 0 && tim_isatty(STDOUT_FILENO) && !quiet);
+
 		// ---- initializing tape, head and state ----
 		memset(tape, BLANK, TAPE_SIZE);
 		len = strlen(input);
@@ -1333,6 +1372,7 @@ int main(int argc, char *argv[])
 			// ===================== Section-8 : Output (trace) =====================
 			if (show_trace)
 			{
+				if (animate) printf("\r\033[2K");   // back to the start of the line and erase it
 				printf("Step %5d | state %s%2d%s | ", steps, C_CYAN, state, C_RESET);
 				for (int p = lo; p <= hi; p++)
 				{
@@ -1340,7 +1380,12 @@ int main(int argc, char *argv[])
 					else printf(" %c ", tape[p]);
 				}
 				if (steps > 0) printf("  %s(transition %d)%s", C_DIM, last_used, C_RESET);
-				printf("\n");
+				if (animate)
+				{
+					fflush(stdout);
+					sleep_ms(animate_ms);
+				}
+				else printf("\n");
 			}
 
 			// halting checks
@@ -1405,6 +1450,9 @@ int main(int argc, char *argv[])
 			if (head < lo) lo = head;
 			if (head > hi) hi = head;
 		}
+
+		// end the animated line so the result starts on a fresh line
+		if (animate) printf("\n");
 
 		// final tape without the blanks around it
 		int first = lo;

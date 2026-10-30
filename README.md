@@ -60,6 +60,7 @@ timsim machine.tm               # load a machine file, then ask for the input st
 timsim machine.tm -i 1011       # run on 1011 and exit (no prompts, good for scripts)
 timsim machine.tm -i 1011 -t    # same, with a step-by-step trace
 timsim machine.tm -i 1011 --step # walk through it, Enter between steps
+timsim machine.tm -i 1011 --animate 200   # redraw the tape as it runs
 timsim --demo                   # built-in example with a trace
 timsim --help                   # all options
 ```
@@ -76,12 +77,18 @@ timsim --help                   # all options
 | `--check` | Only validate `FILE`, do not run it |
 | `--demo` | Run the built-in binary incrementer |
 | `--step` | Pause between steps; press Enter to continue (implies `-t`) |
+| `--animate MS` | Redraw the tape every `MS` ms, 10 to 2000 (implies `-t`; only on a terminal) |
 | `--check-update` | Check GitHub for a newer version |
 | `--update` | Install the newest version |
 | `--no-update-check` | Skip the automatic daily update check |
 | `--color=WHEN` | Colour: `auto` (default), `always`, `never` |
 | `-v`, `--version` | Show the version |
 | `-h`, `--help` | Show help |
+
+`--animate` redraws the trace line in place, so the head looks like it moves along
+the tape. It only animates when the output is a terminal; piped runs (and `-q`)
+fall back to the normal trace, which keeps scripts and the test suite unchanged.
+It can not be combined with `--step`.
 
 Colour is used only when the output goes to a terminal, `NO_COLOR` is unset and
 `TERM` is not `dumb`. `--color=always` forces it, `--color=never` turns it off, and
