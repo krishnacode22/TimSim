@@ -12,6 +12,8 @@
 
 CC      ?= cc
 CFLAGS  ?= -O2 -Wall -Wextra
+# The POSIX calls (popen, isatty) need more than strict C99, so ask for gnu99.
+STD      = -std=gnu99
 PREFIX  ?= /usr/local
 BINDIR   = $(DESTDIR)$(PREFIX)/bin
 VERSION := $(shell tr -d ' \r\n' < VERSION)
@@ -19,14 +21,21 @@ WINCC   ?= x86_64-w64-mingw32-gcc
 
 all: timsim
 
-timsim: timsim.c VERSION
-	$(CC) $(CFLAGS) -DTIMSIM_VERSION='"$(VERSION)"' -DTIMSIM_PREFIX='"$(PREFIX)"' -o timsim timsim.c
+# The install prefix is compiled into the program (--update installs back into the
+# same folder), so it is remembered in .prefix and a change forces a rebuild.
+.prefix: FORCE
+	@echo '$(PREFIX)' | cmp -s - $@ || echo '$(PREFIX)' > $@
+
+FORCE:
+
+timsim: timsim.c VERSION .prefix
+	$(CC) $(CFLAGS) $(STD) -DTIMSIM_VERSION='"$(VERSION)"' -DTIMSIM_PREFIX='"$(PREFIX)"' -o timsim timsim.c
 
 # Windows build: static, so the .exe needs no extra DLLs. Upload it to the GitHub release as "timsim.exe".
 windows: timsim.exe
 
 timsim.exe: timsim.c VERSION
-	$(WINCC) $(CFLAGS) -static -DTIMSIM_VERSION='"$(VERSION)"' -o timsim.exe timsim.c
+	$(WINCC) $(CFLAGS) $(STD) -static -DTIMSIM_VERSION='"$(VERSION)"' -o timsim.exe timsim.c
 
 test: timsim
 	@sh tests/run_tests.sh ./timsim
@@ -41,6 +50,6 @@ uninstall:
 	@echo "Removed $(BINDIR)/timsim"
 
 clean:
-	rm -f timsim timsim.exe
+	rm -f timsim timsim.exe .prefix
 
-.PHONY: all windows test install uninstall clean
+.PHONY: all windows test install uninstall clean FORCE

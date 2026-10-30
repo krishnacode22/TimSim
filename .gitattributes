@@ -1,0 +1,12 @@
+# Line endings: text is stored with LF in the repository, so install.sh,
+# tests/run_tests.sh and the Makefile also work for Linux and macOS users
+# when the files were edited on Windows.
+* text=auto
+*.sh      text eol=lf
+Makefile  text eol=lf
+VERSION   text eol=lf
+*.c       text eol=lf
+*.tm      text eol=lf
+*.txt     text eol=lf
+*.md      text eol=lf
+*.exe     binary

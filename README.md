@@ -20,7 +20,7 @@
 
 ### Linux / macOS / WSL
 
-Needs `git`, `make` and a C compiler (`cc`, `gcc` or `clang`). The installer builds from source and installs `timsim` to `/usr/local/bin` (it asks for `sudo` only if needed):
+Needs `git`, `make` and a C compiler (`cc`, `gcc` or `clang`); anything missing is installed with the system package manager. The installer builds from source and installs `timsim` to `/usr/local/bin` (it asks for `sudo` only if needed):
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.sh)"
@@ -71,7 +71,7 @@ timsim --help                   # all options
 | `-i`, `--input STRING` | Run on `STRING` and exit. Needs a file or `--demo` |
 | `-t`, `--trace` | Show the step-by-step trace |
 | `-l`, `--limit N` | Step limit, 1 to 100000. Overrides the file and the prompt |
-| `-q`, `--quiet` | With `--input`: print only the verdict and the final tape |
+| `-q`, `--quiet` | Only the essentials: with `--input` the verdict and the final tape; also hides the banner and summary |
 | `--check` | Only validate `FILE`, do not run it |
 | `--demo` | Run the built-in binary incrementer |
 | `--check-update` | Check GitHub for a newer version |
@@ -88,6 +88,8 @@ timsim --help                   # all options
 | `1` | Rejected (rejecting state, or no transition defined) |
 | `2` | Error (bad option, bad machine file, bad input string) |
 | `3` | No decision (step limit or tape boundary reached) |
+
+With `--quiet` the verdict is one line: `ACCEPTED`, `REJECTED`, `STEP_LIMIT` or `TAPE_LIMIT`, followed by the final tape.
 
 That makes TimSim easy to use in scripts:
 
@@ -125,24 +127,58 @@ limit 1000           # step limit, optional
 1 3 _ _ S
 ```
 
-TimSim checks the whole file and reports every problem with its line number:
+TimSim checks the whole file and reports every line-level problem with its line
+number, then a summary:
 
 ```text
 tests/bad/many_errors.tm:3: invalid direction 'X' (use L, R or S)
 tests/bad/many_errors.tm:4: symbols and move must be one visible character each
 tests/bad/many_errors.tm:5: states must be 0 to 99
 tests/bad/many_errors.tm:6: unknown word 'bogus' (use start, accept, reject or limit)
+tests/bad/many_errors.tm: no transitions found
+tests/bad/many_errors.tm: 5 error(s) found, machine not loaded.
 ```
+
+Problems that belong to the whole file (a missing `start` line, no transitions)
+have no line number. Warnings and the trace refer to transitions by their
+position in the table (`transition 2`), not by their line in the file.
 
 ---
 
 ## Updates
 
 - Once a day, when you start TimSim in a terminal, it asks GitHub for the newest `VERSION` file. If a newer version exists you are asked: **[y]es / [n]o / [s]kip this version**.
-- Nothing is installed without your answer. The check never runs in scripts (`--input`, `--check`, pipes) and never blocks for more than about 3 seconds.
+- Nothing is installed without your answer. The check never runs in scripts (`--input`, `--check`, pipes) or with `--demo`, and never blocks for more than about 3 seconds (it uses one tool: `curl`, or `wget` when `curl` is missing).
 - `timsim --check-update` only reports. `timsim --update` runs the official installer again: `install.sh` on Linux/macOS (into the same folder TimSim was installed in) and `install.ps1` on Windows (which downloads the newest `timsim.exe` from the releases page).
-- Turn the automatic check off with `--no-update-check` or `export TIMSIM_NO_UPDATE_CHECK=1`.
+- Turn the automatic check off with `--no-update-check` or `TIMSIM_NO_UPDATE_CHECK=1` (`export TIMSIM_NO_UPDATE_CHECK=1` on Linux/macOS, `$env:TIMSIM_NO_UPDATE_CHECK=1` in PowerShell).
 - It needs `curl` or `wget` (on Windows, the `curl.exe` that comes with Windows 10 and later). Without them the check is silently skipped.
+
+| Command | Exit status |
+| --- | --- |
+| `timsim --check` | `0` valid machine, `2` invalid |
+| `timsim --check-update` | `0` up to date, `1` could not check, `4` a newer version exists |
+| `timsim --update` | `0` installed (or already current), `1` failed |
+
+**Releasing a new version** (the order matters, because Windows downloads the
+newest release while Linux builds `main`):
+
+1. Change `VERSION` in your working copy.
+2. Run `make windows` and upload `timsim.exe` to the new GitHub release.
+3. Check the uploaded file with `timsim.exe --version`.
+4. Only then push the `VERSION` change to `main`.
+
+### Environment variables
+
+| Variable | Used by | Meaning |
+| --- | --- | --- |
+| `TIMSIM_NO_UPDATE_CHECK` | `timsim` | Set to any value to skip the automatic update check |
+| `TIMSIM_VERSION_URL` | `timsim` | Where the version is read from (test hook) |
+| `TIMSIM_INSTALL_URL` | `timsim` | Where the installer is read from (test hook) |
+| `TIMSIM_REPO` | `install.sh` | Git repository to build from |
+| `PREFIX` | `install.sh`, `make install` | Install folder (default `/usr/local`) |
+| `TIMSIM_INSTALL_DIR` | `install.ps1` | Install folder on Windows |
+| `TIMSIM_DOWNLOAD_URL` | `install.ps1` | Where `timsim.exe` is downloaded from |
+| `TIMSIM_UNINSTALL` | `install.ps1` | `1` removes TimSim instead of installing |
 
 ---
 
@@ -171,8 +207,11 @@ A valid transition table does not prove that a machine is correct or that it hal
 | `binary_increment.tm` | Adds 1 to a binary number | `-i 1011` gives `1100` |
 | `palindrome.tm` | Accepts binary palindromes | `-i 0110` accepted, `-i 0100` rejected |
 | `even_zeros.tm` | Accepts an even number of 0s | `-i 1001` accepted, `-i 10` rejected |
-| `loops_forever.tm` | Runs right forever | `-i "" -l 50` hits the step limit |
-| `binary_increment.txt` | The answers to type in interactive mode | `timsim < examples/binary_increment.txt` |
+| `loops_forever.tm` | Never halts, only the step limit stops it | `-i "" -l 50` hits the step limit |
+| `binary_increment.txt` | Interactive answers for `binary_increment.tm`, accepted run | `timsim < examples/binary_increment.txt` |
+| `even_zeros_accept.txt` | Interactive answers for `even_zeros.tm`, accepted run | `timsim < examples/even_zeros_accept.txt` |
+| `even_zeros_reject.txt` | Interactive answers for `even_zeros.tm`, rejected run | `timsim < examples/even_zeros_reject.txt` |
+| `step_limit.txt` | Interactive answers, halts at the step limit | `timsim < examples/step_limit.txt` |
 
 ---
 
@@ -181,12 +220,19 @@ A valid transition table does not prove that a machine is correct or that it hal
 ```sh
 git clone https://github.com/krishnacode22/TimSim.git
 cd TimSim
-make            # build ./timsim
-make test       # run the test suite (no internet needed)
-sudo make install
+make                                # build ./timsim
+make test                           # run the test suite (no internet needed)
+sudo make install                   # install to /usr/local/bin
+make install PREFIX=$HOME/.local    # or install without root
+make windows                        # cross-compile timsim.exe (needs mingw-w64)
 ```
 
-Uninstall with `sudo make uninstall` (or `sudo rm /usr/local/bin/timsim`).
+Uninstall with `sudo make uninstall` (or `sudo rm /usr/local/bin/timsim`). The
+`examples/` folder only exists in the repository, it is not installed.
+
+The build uses C99 with POSIX calls (`-std=gnu99`), so `cc`, `gcc` and `clang`
+all work. The install prefix is compiled into the program, so a change of
+`PREFIX` triggers a rebuild.
 
 
 ## License

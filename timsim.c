@@ -1,7 +1,7 @@
-//source code - turing machine simulator(TimSim)
-//Author - Krishna Singh
-//Phase 1 : Transition input | Phase 2 : Validation | Phase 3 : Execution
-//Phase 4 : Command line options, machine files, built-in demo, update checker
+// TimSim - Turing machine simulator
+// Author - Krishna Singh
+// Sections: 1 constants | 2 configuration | 3 command line | 4 update checker
+//           5 getting the machine | 6 validation | 7 execution | 8/9 output
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,7 +51,7 @@
 #define MAX_STEP_LIMIT 100000 // largest step limit the user can choose
 #define DEFAULT_STEP_LIMIT 1000
 #define BLANK '_'             // the blank symbol of the tape
-#define TAPE_SIZE 20001       // fixed tape size (the head can never go past its ends, see Section-9)
+#define TAPE_SIZE 20001       // fixed tape size (the head can never go past its ends, see Section-7 and Section-9)
 #define TAPE_START 10000      // the head starts in the middle, so it has room on both sides
 #define LINE_SIZE 256
 
@@ -65,6 +65,40 @@ typedef struct
 	char move;
 
 }delta;
+
+// Reads one yes/no answer. y, yes, n and no (any case) are all accepted, so every
+// question in TimSim behaves the same way. Returns 1 for yes, 0 for no and -1 when
+// the input ended.
+static int ask_yes_no(const char *prompt)
+{
+	char buf[LINE_SIZE];
+
+	while (1)
+	{
+		char *ans;
+		size_t len;
+		int ch;
+		int k;
+
+		printf("%s", prompt);
+		if (fgets(buf, sizeof(buf), stdin) == NULL)
+		{
+			printf("\n");
+			return -1;
+		}
+		len = strlen(buf);
+		if (len == sizeof(buf) - 1 && buf[len - 1] != '\n')
+			while ((ch = getchar()) != '\n' && ch != EOF);
+		buf[strcspn(buf, "\r\n")] = '\0';
+		ans = buf + strspn(buf, " \t");
+		len = strlen(ans);
+		while (len > 0 && isspace((unsigned char)ans[len - 1])) ans[--len] = '\0';
+		for (k = 0; k < (int)len; k++) ans[k] = (char)tolower((unsigned char)ans[k]);
+		if (strcmp(ans, "y") == 0 || strcmp(ans, "yes") == 0) return 1;
+		if (strcmp(ans, "n") == 0 || strcmp(ans, "no") == 0) return 0;
+		printf("Please answer y or n.\n");
+	}
+}
 
 int main(int argc, char *argv[])
 {
@@ -174,8 +208,9 @@ int main(int argc, char *argv[])
 		printf("Options:\n");
 		printf("  -i, --input STRING   input string to run (no prompts; needs FILE or --demo)\n");
 		printf("  -t, --trace          show the step-by-step trace\n");
-		printf("  -l, --limit N        step limit, 1 to %d (overrides the machine file)\n", MAX_STEP_LIMIT);
-		printf("  -q, --quiet          with --input: print only the result and the final tape\n");
+		printf("  -l, --limit N        step limit, 1 to %d (overrides the file and the prompt)\n", MAX_STEP_LIMIT);
+		printf("  -q, --quiet          only the essentials: with --input just the verdict and\n");
+		printf("                       the final tape; also hides the banner and summary\n");
 		printf("      --run FILE       same as giving FILE directly\n");
 		printf("      --check          only validate FILE, do not run it\n");
 		printf("      --demo           run the built-in binary incrementer\n");
@@ -185,7 +220,11 @@ int main(int argc, char *argv[])
 		printf("  -v, --version        show the version\n");
 		printf("  -h, --help           show this help\n\n");
 		printf("Exit status with --input:  0 accepted, 1 rejected, 2 error, 3 no decision\n");
-		printf("                           (step limit or tape boundary reached)\n\n");
+		printf("                           (step limit or tape boundary reached)\n");
+		printf("Exit status of --check:    0 valid, 2 invalid\n");
+		printf("Exit status of --check-update / --update:\n");
+		printf("                           0 up to date or updated, 1 could not check or\n");
+		printf("                           failed, 4 a newer version is available\n\n");
 		printf("Machine file format (one item per line, text after # is a comment):\n");
 		printf("  start 0                 start state\n");
 		printf("  accept 2                accepting state(s), separated by spaces\n");
@@ -228,6 +267,7 @@ int main(int argc, char *argv[])
 	time_t now = time(NULL);
 	int do_check = upd_mode;
 	if (do_check == 0 && !no_update && getenv("TIMSIM_NO_UPDATE_CHECK") == NULL
+		&& strcmp(TIMSIM_VERSION, "0.0.0") != 0   // a binary built without the Makefile
 		&& cli_input == NULL && !check_only && !demo
 		&& tim_isatty(STDIN_FILENO) && tim_isatty(STDOUT_FILENO))
 		do_check = 1;
@@ -279,6 +319,11 @@ int main(int argc, char *argv[])
 		if (url == NULL || url[0] == '\0') url = RAW_URL "/VERSION";
 		for (const char *c = url; *c != '\0'; c++)
 			if (!isalnum((unsigned char)*c) && strchr(URL_SAFE_CHARS, *c) == NULL) url_ok = 0;
+		if (!url_ok && upd_mode)
+		{
+			fprintf(stderr, "timsim: TIMSIM_VERSION_URL contains unsafe characters.\n");
+			return 1;
+		}
 
 		if (url_ok)
 		{
@@ -287,7 +332,10 @@ int main(int argc, char *argv[])
 			// Windows 10 and later ship curl.exe
 			snprintf(cmd, sizeof(cmd), "curl -fsS --max-time 3 \"%s\" 2>nul", url);
 #else
-			snprintf(cmd, sizeof(cmd), "(curl -fsS --max-time 3 '%s' || wget -qO- -T 3 '%s') 2>/dev/null", url, url);
+			// one tool only, otherwise a curl timeout plus a wget timeout doubles the wait
+			snprintf(cmd, sizeof(cmd),
+				"if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 3 '%s'; "
+				"else wget -qO- -T 3 '%s'; fi 2>/dev/null", url, url);
 #endif
 			p = tim_popen(cmd, "r");
 			if (p != NULL)
@@ -353,7 +401,7 @@ int main(int argc, char *argv[])
 		{
 			int do_install = 0;
 			printf("\n*** A new version of TimSim is available: %s -> %s ***\n", TIMSIM_VERSION, remote);
-			printf("    Release page: %s\n", REPO_URL);
+			printf("    Release page: %s/releases/latest\n", REPO_URL);
 
 			if (upd_mode == 3)
 				do_install = 1;
@@ -668,7 +716,7 @@ int main(int argc, char *argv[])
 		printf("Tip: run 'timsim --help' to see the command line options.\n");
 		printf("========================================\n\n");
 
-		// ===================== Section-3 : Transition input =====================
+		// ---- interactive mode : transition input ----
 		while (1)
 		{
 			printf("Enter Number of Transitions (1 to %d) : ", MAX_TRANSITIONS);
@@ -700,7 +748,7 @@ int main(int argc, char *argv[])
 		}
 
 		printf("\n========================================\n");
-		printf("Transition Format, seperate by space when entering \n{Current State} {Next State} {Read symbol} {Write symbol} {Move}\n--------------------------------------------------------------------------------------\n");
+		printf("Transition Format, separate by space when entering \n{Current State} {Next State} {Read symbol} {Write symbol} {Move}\n--------------------------------------------------------------------------------------\n");
 		printf("Example : 0 1 a b R   (in state 0, read 'a', write 'b', go to state 1, move right)\n");
 		printf("Allowed moving directions = {l,r,s} or {L,R,S} Left, Right and Stay respectively\n");
 		printf("Blank symbol is '%c'. States are 0 to %d.\n========================================\n", BLANK, MAX_STATE);
@@ -724,7 +772,7 @@ int main(int argc, char *argv[])
 					continue;
 				}
 
-				// ===================== Section-4 : Input validation =====================
+				// ---- input validation: states, symbols, direction ----
 				used = -1;
 				if (sscanf(line, " %ld %ld %7s %7s %7s %n", &val, &val2, rs, ws, ms, &used) != 5
 					|| line[used] != '\0')
@@ -760,7 +808,7 @@ int main(int argc, char *argv[])
 					continue;
 				}
 
-				// ===================== Section-5 : Conflict detection =====================
+				// ---- conflict detection ----
 				// checked right when the transition is typed, so only this line has to be re-entered
 				int conflict_with = 0;
 				for (int j = 0; j < i; j++)
@@ -806,7 +854,7 @@ int main(int argc, char *argv[])
 		printf("-------------------------------\n");
 		printf("Transition validation passed.\n");
 
-		// ===================== Section-2 (continued) : Machine configuration =====================
+		// ---- machine configuration ----
 		printf("\n========================================\n");
 		printf("Machine configuration\n");
 		printf("========================================\n");
@@ -993,9 +1041,12 @@ int main(int argc, char *argv[])
 			if (sf != NULL)
 			{
 				fclose(sf);
-				printf("'%s' already exists. Overwrite? (y/n): ", fname);
-				if (fgets(line, sizeof(line), stdin) == NULL) break;
-				if (tolower((unsigned char)line[strspn(line, " \t")]) != 'y') continue;
+				char prompt[LINE_SIZE + 64];
+				int answer;
+				snprintf(prompt, sizeof(prompt), "'%s' already exists. Overwrite? (y/n): ", fname);
+				answer = ask_yes_no(prompt);
+				if (answer < 0) break;
+				if (!answer) continue;
 			}
 			sf = fopen(fname, "w");
 			if (sf == NULL)
@@ -1166,25 +1217,10 @@ int main(int argc, char *argv[])
 		int show_trace = cli_trace;
 		while (cli_input == NULL && !cli_trace)
 		{
-			printf("Show step by step trace? (y/n): ");
-			if (fgets(line, sizeof(line), stdin) == NULL)
-			{
-				printf("\nInput ended unexpectedly.\n");
-				return 1;
-			}
-			if (strlen(line) == sizeof(line) - 1 && line[sizeof(line) - 2] != '\n')
-				while ((ch = getchar()) != '\n' && ch != EOF);
-			if ((line[0] == 'y' || line[0] == 'Y') && line[strspn(line + 1, " \t\r\n") + 1] == '\0')
-			{
-				show_trace = 1;
-				break;
-			}
-			if ((line[0] == 'n' || line[0] == 'N') && line[strspn(line + 1, " \t\r\n") + 1] == '\0')
-			{
-				show_trace = 0;
-				break;
-			}
-			printf("Please answer y or n.\n");
+			int answer = ask_yes_no("Show step by step trace? (y/n): ");
+			if (answer < 0) return 1;
+			show_trace = answer;
+			break;
 		}
 
 		// ---- initializing tape, head and state ----
@@ -1314,7 +1350,7 @@ int main(int argc, char *argv[])
 				printf("        The machine may be looping forever, or it may need a bigger limit.\n");
 			}
 			else
-				printf("RESULT: STOPPED (the tape boundary was reached, tape is limited to %d cells each way)\n", TAPE_START);
+				printf("RESULT: TAPE LIMIT REACHED (the tape is limited to %d cells each way) - no decision made\n", TAPE_START);
 
 			printf("Steps taken : %d\n", steps);
 			printf("Final state : %d\n", state);
@@ -1336,29 +1372,8 @@ int main(int argc, char *argv[])
 		}
 
 		// ---- run another input on the same machine? ----
-		int again = 0;
-		while (1)
-		{
-			printf("\nRun another input on the same machine? (y/n): ");
-			if (fgets(line, sizeof(line), stdin) == NULL)
-			{
-				printf("\n");
-				return 0;
-			}
-			if (strlen(line) == sizeof(line) - 1 && line[sizeof(line) - 2] != '\n')
-				while ((ch = getchar()) != '\n' && ch != EOF);
-			if ((line[0] == 'y' || line[0] == 'Y') && line[strspn(line + 1, " \t\r\n") + 1] == '\0')
-			{
-				again = 1;
-				break;
-			}
-			if ((line[0] == 'n' || line[0] == 'N') && line[strspn(line + 1, " \t\r\n") + 1] == '\0')
-			{
-				again = 0;
-				break;
-			}
-			printf("Please answer y or n.\n");
-		}
+		int again = ask_yes_no("\nRun another input on the same machine? (y/n): ");
+		if (again < 0) return 0;
 		if (!again) break;
 	}
 

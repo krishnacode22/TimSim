@@ -3,9 +3,14 @@
 # Update-check tests use local file:// URLs, so no internet is needed.
 BIN=$(cd "$(dirname "$1")" && pwd)/$(basename "${1:-timsim}")
 cd "$(dirname "$0")/.." || exit 1
+ROOT=$(pwd)
 TMP=$(mktemp -d)
+# A Windows timsim.exe can not open MSYS paths such as /tmp/..., so give it a native path.
+if command -v cygpath >/dev/null 2>&1; then TMP=$(cygpath -m "$TMP"); fi
 trap 'rm -rf "$TMP"' EXIT
 export TIMSIM_NO_UPDATE_CHECK=1
+# the update tests must not touch the real daily-check cache (~/.cache/timsim)
+export XDG_CACHE_HOME="$TMP/cache_cli"
 pass=0
 fail=0
 
@@ -57,30 +62,54 @@ expect "invalid move"            2 "invalid direction"   "$BIN" tests/bad/many_e
 expect "accept/reject overlap"   2 "both accepting and rejecting" "$BIN" tests/bad/accept_reject_overlap.tm --check
 expect "--check needs a file"    2 "needs a machine file" "$BIN" --check
 
+echo "More behaviour"
+printf 'start 0\naccept 9\nlimit 5\n0 0 _ _ R\n0 0 a a R\n' > "$TMP/limit.tm"
+expect "limit directive in file" 3 "STEP_LIMIT"      "$BIN" "$TMP/limit.tm" -i "" -q
+printf 'start 0\naccept 1\n0 1 a b r\n' > "$TMP/lower.tm"
+expect "lowercase move letter"   0 "ACCEPTED"        "$BIN" "$TMP/lower.tm" -i a -q
+printf 'start 0\naccept 1\n0 0 a b S\n' > "$TMP/notrans.tm"
+expect "no transition rejects"   1 "REJECTED"        "$BIN" "$TMP/notrans.tm" -i aa -q
+printf 'start 0\naccept 9\n0 0 _ _ R\n0 0 a a R\n' > "$TMP/right.tm"
+expect "tape edge is no decision" 3 "TAPE_LIMIT"     "$BIN" "$TMP/right.tm" -i "" -l 20000 -q
+expect "tape edge message"       3 "TAPE LIMIT REACHED" "$BIN" "$TMP/right.tm" -i "" -l 20000
+expect "--run FILE"              0 "1100"            "$BIN" --run examples/binary_increment.tm -i 1011 -q
+expect "--no-update-check"       0 "1100"            "$BIN" --no-update-check examples/binary_increment.tm -i 1011 -q
+expect "--check reports warnings" 0 "never used as a next state" "$BIN" examples/loops_forever.tm --check
+expect "--demo quiet"            0 "1100"            "$BIN" --demo -q
+if printf '%s' "$(tr -d ' \r\n' < VERSION)" | grep -Ec '^[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then ok "VERSION is X.Y.Z"; else bad "VERSION is X.Y.Z"; fi
+
 echo "Interactive mode"
-expect "typed-in session"        0 "RESULT: ACCEPTED"  sh -c "'$BIN' < examples/binary_increment.txt"
+expect "typed-in session"        0 "RESULT: ACCEPTED"  sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/binary_increment.txt'"
+expect "transcript accept"       0 "RESULT: ACCEPTED"  sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/even_zeros_accept.txt'"
+expect "transcript reject"       0 "RESULT: REJECTED"  sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/even_zeros_reject.txt'"
+expect "transcript step limit"   0 "STEP LIMIT REACHED" sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/step_limit.txt'"
 # type a machine, save it, then run the saved file
 printf '2\n0 1 a b R\n1 2 b b S\n0\n2\n\n\n%s/saved.tm\nab\nn\nn\n' "$TMP" | "$BIN" > "$TMP/session.out" 2>&1
 if grep -q "Saved" "$TMP/session.out" && [ -f "$TMP/saved.tm" ]; then ok "save machine to file"; else bad "save machine to file"; fi
 expect "saved file runs"         0 "ACCEPTED"          "$BIN" "$TMP/saved.tm" -i ab -q
-printf '1\n0 1 a b R\n0\n1\n\n\n%s/saved.tm\nn\nab\nn\nn\n' "$TMP" | "$BIN" > "$TMP/session2.out" 2>&1
+printf '1\n0 1 a b R\n0\n1\n\n\n%s/saved.tm\nn\n\nab\nn\nn\n' "$TMP" | "$BIN" > "$TMP/session2.out" 2>&1
 if grep -q "already exists" "$TMP/session2.out"; then ok "asks before overwriting"; else bad "asks before overwriting"; fi
 printf 'abc\n0\n1\n' | "$BIN" > "$TMP/bad.out" 2>&1; code=$?
 if [ $code -eq 1 ] && grep -q "Input ended unexpectedly" "$TMP/bad.out"; then ok "EOF does not hang"; else bad "EOF does not hang (exit $code)"; fi
 
 echo "Update checker (local file:// URLs)"
-V=$(tr -d ' \r\n' < VERSION)
-echo "99.0.0" > "$TMP/v_new"; echo "$V" > "$TMP/v_same"; echo "<html>not a version</html>" > "$TMP/v_junk"
-expect "newer version found"     4 "99.0.0"            env TIMSIM_VERSION_URL="file://$TMP/v_new"  "$BIN" --check-update
-expect "already up to date"      0 "up to date"        env TIMSIM_VERSION_URL="file://$TMP/v_same" "$BIN" --check-update
-expect "junk is not trusted"     1 "Could not check"   env TIMSIM_VERSION_URL="file://$TMP/v_junk" "$BIN" --check-update
-expect "unreachable version file" 1 "Could not check"  env TIMSIM_VERSION_URL="file://$TMP/nothing" "$BIN" --check-update
-expect "unsafe URL refused"      1 "Could not check"   env TIMSIM_VERSION_URL="file:///x;touch $TMP/pwned" "$BIN" --check-update
-if [ ! -e "$TMP/pwned" ]; then ok "no shell injection via URL"; else bad "shell injection via URL"; fi
-printf '#!/bin/sh\necho "FAKE-INSTALLER prefix=$PREFIX"\n' > "$TMP/fake_install.sh"
-expect "--update runs installer" 0 "FAKE-INSTALLER prefix=" env TIMSIM_VERSION_URL="file://$TMP/v_new" TIMSIM_INSTALL_URL="file://$TMP/fake_install.sh" "$BIN" --update
-expect "--update failed download" 1 "Update failed"     env TIMSIM_VERSION_URL="file://$TMP/v_new" TIMSIM_INSTALL_URL="file://$TMP/missing.sh" "$BIN" --update
-expect "--update when current"   0 "up to date"        env TIMSIM_VERSION_URL="file://$TMP/v_same" "$BIN" --update
+if ! command -v curl >/dev/null 2>&1; then
+    # wget can not read file:// URLs, and these tests must not use the internet
+    echo "  SKIP  update tests (curl is needed for file:// URLs)"
+else
+    V=$(tr -d ' \r\n' < VERSION)
+    echo "99.0.0" > "$TMP/v_new"; echo "$V" > "$TMP/v_same"; echo "<html>not a version</html>" > "$TMP/v_junk"
+    expect "newer version found"     4 "99.0.0"            env TIMSIM_VERSION_URL="file://$TMP/v_new"  "$BIN" --check-update
+    expect "already up to date"      0 "up to date"        env TIMSIM_VERSION_URL="file://$TMP/v_same" "$BIN" --check-update
+    expect "junk is not trusted"     1 "Could not check"   env TIMSIM_VERSION_URL="file://$TMP/v_junk" "$BIN" --check-update
+    expect "unreachable version file" 1 "Could not check"  env TIMSIM_VERSION_URL="file://$TMP/nothing" "$BIN" --check-update
+    expect "unsafe URL refused"      1 "unsafe characters" env TIMSIM_VERSION_URL="file:///x;touch $TMP/pwned" "$BIN" --check-update
+    if [ ! -e "$TMP/pwned" ]; then ok "no shell injection via URL"; else bad "shell injection via URL"; fi
+    printf '#!/bin/sh\necho "FAKE-INSTALLER prefix=$PREFIX"\n' > "$TMP/fake_install.sh"
+    expect "--update runs installer" 0 "FAKE-INSTALLER prefix=" env TIMSIM_VERSION_URL="file://$TMP/v_new" TIMSIM_INSTALL_URL="file://$TMP/fake_install.sh" "$BIN" --update
+    expect "--update failed download" 1 "Update failed"     env TIMSIM_VERSION_URL="file://$TMP/v_new" TIMSIM_INSTALL_URL="file://$TMP/missing.sh" "$BIN" --update
+    expect "--update when current"   0 "up to date"        env TIMSIM_VERSION_URL="file://$TMP/v_same" "$BIN" --update
+fi
 
 # automatic check needs a real terminal, so run inside a pseudo terminal with script(1)
 if script -qec true /dev/null >/dev/null 2>&1; then

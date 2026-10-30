@@ -34,12 +34,15 @@
     Write-Host '========================================'
 
     # ---- uninstall mode ----
-    if ($env:TIMSIM_UNINSTALL) {
+    # Only the exact value "1" counts: any other non-empty string (even "0") would be
+    # truthy in PowerShell, and the variable stays set for the whole session.
+    if ($env:TIMSIM_UNINSTALL -eq '1') {
         Write-Host '   Removing TimSim...'
         Write-Host '========================================'
         if (Test-Path $dir) { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
         $kept = @($entries | Where-Object { $_.TrimEnd('\') -ine $cleanDir })
         [Environment]::SetEnvironmentVariable('Path', ($kept -join ';'), 'User')
+        Remove-Item Env:TIMSIM_UNINSTALL -ErrorAction SilentlyContinue
         Write-Host " TimSim removed from $dir"
         Write-Host '========================================'
         return

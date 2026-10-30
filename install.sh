@@ -37,7 +37,7 @@ install_dependencies() {
 
         # Detect package manager and install dependencies
         if command -v apt-get >/dev/null 2>&1; then
-            $SUDO apt-get update &&$SUDO apt-get install -y git make build-essential
+            $SUDO apt-get update && $SUDO apt-get install -y git make build-essential
         elif command -v dnf >/dev/null 2>&1; then
             $SUDO dnf install -y git make gcc
         elif command -v pacman >/dev/null 2>&1; then
@@ -46,6 +46,12 @@ install_dependencies() {
             $SUDO apk add --no-cache git make build-base
         elif command -v brew >/dev/null 2>&1; then
             brew install git make
+            # brew ships no compiler; on macOS it comes with the Xcode command line tools
+            if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1 && ! command -v clang >/dev/null 2>&1; then
+                echo "Error: this Mac has no C compiler yet."
+                echo "Run 'xcode-select --install', wait for it to finish, then run this script again."
+                exit 1
+            fi
         else
             echo "Error: Could not detect a supported package manager (apt, dnf, pacman, apk, brew)."
             echo "Please manually install: git, make, and a C compiler."
@@ -59,7 +65,9 @@ install_dependencies
 
 # Clone into a temporary directory that is always cleaned up
 TEMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
+trap 'rm -rf "$TEMP_DIR"' EXIT
+# plain sh keeps running after INT/TERM, so stop explicitly (EXIT then cleans up)
+trap 'exit 1' INT TERM
 
 echo "Downloading source..."
 if ! git clone --quiet --depth 1 "$REPO_URL" "$TEMP_DIR/timsim"; then
@@ -70,7 +78,7 @@ fi
 cd "$TEMP_DIR/timsim"
 
 echo "Building TimSim..."
-if ! make >/dev/null; then
+if ! make PREFIX="$PREFIX" >/dev/null; then
     echo "Error: build failed. Run 'make' inside the repository to see the full error."
     exit 1
 fi
@@ -89,10 +97,13 @@ else
     sudo make install PREFIX="$PREFIX" >/dev/null
 fi
 
+REMOVE_CMD="sudo rm"
+if [ -w "$PREFIX/bin" ]; then REMOVE_CMD="rm"; fi
+
 echo "========================================"
 echo " TimSim installed successfully!"
 echo " Type 'timsim' anywhere to run it."
-echo " To remove it later:  sudo rm $PREFIX/bin/timsim"
+echo " To remove it later:  $REMOVE_CMD $PREFIX/bin/timsim"
 echo "========================================"
 
 case ":$PATH:" in

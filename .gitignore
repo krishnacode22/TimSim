@@ -1,3 +1,5 @@
-timsim
+/timsim
 *.o
 *.exe
+.prefix
+.freebuff/
