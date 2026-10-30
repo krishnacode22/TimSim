@@ -87,6 +87,13 @@ if "$BIN" examples/binary_increment.tm -i 1011 --color=always | grep -q "RESULT:
 if "$BIN" examples/binary_increment.tm -i 1011 --color=always | grep -q "Final tape  : 1100"; then ok "coloured output keeps the tape line"; else bad "coloured output keeps the tape line"; fi
 expect "bad --color value"       2 "--color needs"          "$BIN" --color=sometimes
 
+echo "Step mode"
+STEPS="printf '\n\n\n\n\n\n\n\n\n\n'"
+expect "step mode pauses"        0 "Press Enter for the next step" sh -c "$STEPS | '$BIN' examples/binary_increment.tm -i 1011 --step"
+expect "step mode implies trace" 0 "Execution trace" sh -c "$STEPS | '$BIN' examples/binary_increment.tm -i 1011 --step"
+expect "step mode finishes"      0 "RESULT: ACCEPTED" sh -c "$STEPS | '$BIN' examples/binary_increment.tm -i 1011 --step"
+if "$BIN" examples/binary_increment.tm -i 1011 -t | grep -q "Press Enter"; then bad "trace without --step does not pause"; else ok "trace without --step does not pause"; fi
+
 echo "Interactive mode"
 expect "typed-in session"        0 "RESULT: ACCEPTED"  sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/binary_increment.txt'"
 expect "transcript accept"       0 "RESULT: ACCEPTED"  sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/even_zeros_accept.txt'"

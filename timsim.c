@@ -184,6 +184,7 @@ int main(int argc, char *argv[])
 	int show_help = 0;
 	int show_version = 0;
 	int cli_trace = 0;
+	int step_mode = 0;            // --step: wait for Enter before every transition
 	int quiet = 0;
 	int check_only = 0;
 	int demo = 0;
@@ -206,6 +207,7 @@ int main(int argc, char *argv[])
 		else if (strcmp(arg, "-q") == 0 || strcmp(arg, "--quiet") == 0) quiet = 1;
 		else if (strcmp(arg, "--check") == 0) check_only = 1;
 		else if (strcmp(arg, "--demo") == 0) demo = 1;
+		else if (strcmp(arg, "--step") == 0) step_mode = 1;
 		else if (strcmp(arg, "--check-update") == 0) upd_mode = 2;
 		else if (strcmp(arg, "--update") == 0) upd_mode = 3;
 		else if (strcmp(arg, "--no-update-check") == 0) no_update = 1;
@@ -268,6 +270,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	// --step needs the trace, otherwise there is nothing to step through
+	if (step_mode) cli_trace = 1;
+
 	// colour is decided once, before anything is printed; -q output always stays plain
 	init_colors(quiet ? 2 : color_mode);
 
@@ -288,6 +293,7 @@ int main(int argc, char *argv[])
 		printf("      --run FILE       same as giving FILE directly\n");
 		printf("      --check          only validate FILE, do not run it\n");
 		printf("      --demo           run the built-in binary incrementer\n");
+		printf("      --step           pause between steps (press Enter); turns the trace on\n");
 		printf("      --check-update   check GitHub for a newer version\n");
 		printf("      --update         install the newest version from GitHub\n");
 		printf("      --no-update-check  skip the automatic daily update check\n");
@@ -1349,6 +1355,18 @@ int main(int argc, char *argv[])
 			{
 				result = 4;
 				break;
+			}
+
+			// --step: pause like a debugger, one transition per Enter
+			if (step_mode)
+			{
+				char pause[LINE_SIZE];
+				printf("Press Enter for the next step: ");
+				fflush(stdout);
+				if (fgets(pause, sizeof(pause), stdin) == NULL)
+					printf("\n");
+				else if (strchr(pause, '\n') == NULL)
+					while ((ch = getchar()) != '\n' && ch != EOF);
 			}
 
 			// finding the matching transition

@@ -59,6 +59,7 @@ timsim                          # interactive: type the machine in
 timsim machine.tm               # load a machine file, then ask for the input string
 timsim machine.tm -i 1011       # run on 1011 and exit (no prompts, good for scripts)
 timsim machine.tm -i 1011 -t    # same, with a step-by-step trace
+timsim machine.tm -i 1011 --step # walk through it, Enter between steps
 timsim --demo                   # built-in example with a trace
 timsim --help                   # all options
 ```
@@ -74,6 +75,7 @@ timsim --help                   # all options
 | `-q`, `--quiet` | Only the essentials: with `--input` the verdict and the final tape; also hides the banner and summary |
 | `--check` | Only validate `FILE`, do not run it |
 | `--demo` | Run the built-in binary incrementer |
+| `--step` | Pause between steps; press Enter to continue (implies `-t`) |
 | `--check-update` | Check GitHub for a newer version |
 | `--update` | Install the newest version |
 | `--no-update-check` | Skip the automatic daily update check |
