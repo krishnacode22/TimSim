@@ -78,6 +78,15 @@ expect "--check reports warnings" 0 "never used as a next state" "$BIN" examples
 expect "--demo quiet"            0 "1100"            "$BIN" --demo -q
 if printf '%s' "$(tr -d ' \r\n' < VERSION)" | grep -Ec '^[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then ok "VERSION is X.Y.Z"; else bad "VERSION is X.Y.Z"; fi
 
+echo "Colour"
+if "$BIN" examples/binary_increment.tm -i 1011 | grep -q "$(printf '\033')"; then bad "piped output stays plain"; else ok "piped output stays plain"; fi
+if "$BIN" examples/binary_increment.tm -i 1011 --color=always | grep -q "$(printf '\033')"; then ok "--color=always emits codes"; else bad "--color=always emits codes"; fi
+if NO_COLOR=1 "$BIN" examples/binary_increment.tm -i 1011 --color=always | grep -q "$(printf '\033')"; then ok "--color=always ignores NO_COLOR"; else bad "--color=always ignores NO_COLOR"; fi
+if "$BIN" examples/binary_increment.tm -i 1011 -q --color=always | grep -q "$(printf '\033')"; then bad "-q stays plain"; else ok "-q stays plain"; fi
+if "$BIN" examples/binary_increment.tm -i 1011 --color=always | grep -q "RESULT: ACCEPTED"; then ok "coloured result keeps the words"; else bad "coloured result keeps the words"; fi
+if "$BIN" examples/binary_increment.tm -i 1011 --color=always | grep -q "Final tape  : 1100"; then ok "coloured output keeps the tape line"; else bad "coloured output keeps the tape line"; fi
+expect "bad --color value"       2 "--color needs"          "$BIN" --color=sometimes
+
 echo "Interactive mode"
 expect "typed-in session"        0 "RESULT: ACCEPTED"  sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/binary_increment.txt'"
 expect "transcript accept"       0 "RESULT: ACCEPTED"  sh -c "cd '$TMP' && '$BIN' < '$ROOT/examples/even_zeros_accept.txt'"

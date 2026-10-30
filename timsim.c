@@ -15,12 +15,14 @@
 #ifdef _WIN32
 #include <io.h>
 #include <direct.h>
+#include <windows.h>
 #define tim_isatty _isatty
 #define tim_popen _popen
 #define tim_pclose _pclose
 #define tim_mkdir(p) _mkdir(p)
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
+#define STDERR_FILENO 2
 #define URL_SAFE_CHARS ":/._-~?=@+,"      // & and % are special for cmd.exe, so they are not allowed
 #else
 #include <unistd.h>
@@ -65,6 +67,62 @@ typedef struct
 	char move;
 
 }delta;
+
+// ---- colours ----
+// The escape codes stay empty strings when colour is off, so the output is exactly
+// the same as before and the tests can keep grepping plain text.
+static const char *C_RESET = "", *C_BOLD = "", *C_DIM = "", *C_RED = "", *C_GREEN = "",
+                  *C_YELLOW = "", *C_CYAN = "";
+static const char *E_RESET = "", *E_RED = "", *E_YELLOW = "";
+
+#ifdef _WIN32
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+// cmd.exe and older consoles print the escape codes literally until this is switched on
+static int enable_vt(int fd)
+{
+	HANDLE h = GetStdHandle(fd == STDERR_FILENO ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+	DWORD mode;
+
+	if (h == INVALID_HANDLE_VALUE || !GetConsoleMode(h, &mode)) return 0;
+	return SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
+}
+#endif
+
+// mode: 0 = auto, 1 = always, 2 = never. NO_COLOR and TERM=dumb switch auto off;
+// auto also needs a real terminal, "always" does not.
+static int color_ok(int fd, int mode)
+{
+	const char *nc = getenv("NO_COLOR");
+	const char *term = getenv("TERM");
+
+	if (mode == 2) return 0;
+	if (mode == 0)
+	{
+		if (!tim_isatty(fd)) return 0;
+		if (nc != NULL && nc[0] != '\0') return 0;
+		if (term != NULL && strcmp(term, "dumb") == 0) return 0;
+	}
+#ifdef _WIN32
+	// try to switch ANSI handling on either way; auto gives up if that fails
+	if (!enable_vt(fd) && mode == 0) return 0;
+#endif
+	return 1;
+}
+
+static void init_colors(int mode)
+{
+	if (color_ok(STDOUT_FILENO, mode))
+	{
+		C_RESET = "\033[0m"; C_BOLD = "\033[1m"; C_DIM = "\033[2m";
+		C_RED = "\033[31m"; C_GREEN = "\033[32m"; C_YELLOW = "\033[33m"; C_CYAN = "\033[36m";
+	}
+	if (color_ok(STDERR_FILENO, mode))
+	{
+		E_RESET = "\033[0m"; E_RED = "\033[31m"; E_YELLOW = "\033[33m";
+	}
+}
 
 // Reads one yes/no answer. y, yes, n and no (any case) are all accepted, so every
 // question in TimSim behaves the same way. Returns 1 for yes, 0 for no and -1 when
@@ -131,6 +189,7 @@ int main(int argc, char *argv[])
 	int demo = 0;
 	int no_update = 0;
 	int upd_mode = 0;             // 0 = automatic check, 2 = --check-update, 3 = --update
+	int color_mode = 0;           // 0 = auto, 1 = always, 2 = never
 	long cli_limit = 0;
 
 	// ===================== Section-3 : Command line options =====================
@@ -150,11 +209,23 @@ int main(int argc, char *argv[])
 		else if (strcmp(arg, "--check-update") == 0) upd_mode = 2;
 		else if (strcmp(arg, "--update") == 0) upd_mode = 3;
 		else if (strcmp(arg, "--no-update-check") == 0) no_update = 1;
+		else if (strncmp(arg, "--color=", 8) == 0)
+		{
+			const char *when = arg + 8;
+			if (strcmp(when, "auto") == 0) color_mode = 0;
+			else if (strcmp(when, "always") == 0) color_mode = 1;
+			else if (strcmp(when, "never") == 0) color_mode = 2;
+			else
+			{
+				fprintf(stderr, "%stimsim: --color needs auto, always or never (not '%s').%s\n", E_RED, when, E_RESET);
+				return 2;
+			}
+		}
 		else if (is_input || is_limit || is_run)
 		{
 			if (a + 1 >= argc)
 			{
-				fprintf(stderr, "timsim: option '%s' needs a value.\nTry 'timsim --help'.\n", arg);
+				fprintf(stderr, "%stimsim: option '%s' needs a value.\nTry 'timsim --help'.%s\n", E_RED, arg, E_RESET);
 				return 2;
 			}
 			a++;
@@ -166,7 +237,7 @@ int main(int argc, char *argv[])
 				if (sscanf(argv[a], " %ld %n", &val, &used) != 1 || argv[a][used] != '\0'
 					|| val < 1 || val > MAX_STEP_LIMIT)
 				{
-					fprintf(stderr, "timsim: step limit must be a whole number from 1 to %d.\n", MAX_STEP_LIMIT);
+					fprintf(stderr, "%stimsim: step limit must be a whole number from 1 to %d.%s\n", E_RED, MAX_STEP_LIMIT, E_RESET);
 					return 2;
 				}
 				cli_limit = val;
@@ -175,7 +246,7 @@ int main(int argc, char *argv[])
 			{
 				if (file_path != NULL)
 				{
-					fprintf(stderr, "timsim: only one machine file can be given.\n");
+					fprintf(stderr, "%stimsim: only one machine file can be given.%s\n", E_RED, E_RESET);
 					return 2;
 				}
 				file_path = argv[a];
@@ -183,7 +254,7 @@ int main(int argc, char *argv[])
 		}
 		else if (arg[0] == '-' && arg[1] != '\0')
 		{
-			fprintf(stderr, "timsim: unknown option '%s'.\nTry 'timsim --help'.\n", arg);
+			fprintf(stderr, "%stimsim: unknown option '%s'.\nTry 'timsim --help'.%s\n", E_RED, arg, E_RESET);
 			return 2;
 		}
 		else
@@ -196,6 +267,9 @@ int main(int argc, char *argv[])
 			file_path = arg;
 		}
 	}
+
+	// colour is decided once, before anything is printed; -q output always stays plain
+	init_colors(quiet ? 2 : color_mode);
 
 	if (show_help)
 	{
@@ -217,6 +291,7 @@ int main(int argc, char *argv[])
 		printf("      --check-update   check GitHub for a newer version\n");
 		printf("      --update         install the newest version from GitHub\n");
 		printf("      --no-update-check  skip the automatic daily update check\n");
+		printf("      --color=WHEN     colour the output: auto (default), always, never\n");
 		printf("  -v, --version        show the version\n");
 		printf("  -h, --help           show this help\n\n");
 		printf("Exit status with --input:  0 accepted, 1 rejected, 2 error, 3 no decision\n");
@@ -231,7 +306,8 @@ int main(int argc, char *argv[])
 		printf("  reject 3                rejecting state(s), optional\n");
 		printf("  limit 1000              step limit, optional\n");
 		printf("  0 1 a b R               transition: from to read write move(L/R/S)\n\n");
-		printf("Environment: TIMSIM_NO_UPDATE_CHECK=1 turns the automatic update check off.\n");
+		printf("Environment: TIMSIM_NO_UPDATE_CHECK=1 turns the automatic update check off,\n");
+		printf("             a non-empty NO_COLOR turns colour off.\n");
 		printf("More information: %s\n", REPO_URL);
 		return 0;
 	}
@@ -242,17 +318,17 @@ int main(int argc, char *argv[])
 	}
 	if (demo && file_path != NULL)
 	{
-		fprintf(stderr, "timsim: use either --demo or a machine file, not both.\n");
+		fprintf(stderr, "%stimsim: use either --demo or a machine file, not both.%s\n", E_RED, E_RESET);
 		return 2;
 	}
 	if (check_only && file_path == NULL)
 	{
-		fprintf(stderr, "timsim: --check needs a machine file.\nTry 'timsim --help'.\n");
+		fprintf(stderr, "%stimsim: --check needs a machine file.\nTry 'timsim --help'.%s\n", E_RED, E_RESET);
 		return 2;
 	}
 	if (cli_input != NULL && file_path == NULL && !demo)
 	{
-		fprintf(stderr, "timsim: --input needs a machine file (or --demo).\nTry 'timsim --help'.\n");
+		fprintf(stderr, "%stimsim: --input needs a machine file (or --demo).\nTry 'timsim --help'.%s\n", E_RED, E_RESET);
 		return 2;
 	}
 
@@ -320,8 +396,7 @@ int main(int argc, char *argv[])
 		for (const char *c = url; *c != '\0'; c++)
 			if (!isalnum((unsigned char)*c) && strchr(URL_SAFE_CHARS, *c) == NULL) url_ok = 0;
 		if (!url_ok && upd_mode)
-		{
-			fprintf(stderr, "timsim: TIMSIM_VERSION_URL contains unsafe characters.\n");
+		{				fprintf(stderr, "%stimsim: TIMSIM_VERSION_URL contains unsafe characters.%s\n", E_RED, E_RESET);
 			return 1;
 		}
 
@@ -381,7 +456,7 @@ int main(int argc, char *argv[])
 		{
 			if (upd_mode)
 			{
-				fprintf(stderr, "Could not check for updates (no internet connection, or neither curl nor wget is installed).\n");
+					fprintf(stderr, "%sCould not check for updates (no internet connection, or neither curl nor wget is installed).%s\n", E_RED, E_RESET);
 				return 1;
 			}
 		}
@@ -459,7 +534,7 @@ int main(int argc, char *argv[])
 					if (!isalnum((unsigned char)*c) && strchr(URL_SAFE_CHARS, *c) == NULL) iu_ok = 0;
 				if (!iu_ok)
 				{
-					fprintf(stderr, "timsim: TIMSIM_INSTALL_URL contains unsafe characters.\n");
+					fprintf(stderr, "%stimsim: TIMSIM_INSTALL_URL contains unsafe characters.%s\n", E_RED, E_RESET);
 					return 1;
 				}
 #ifdef _WIN32
@@ -480,7 +555,7 @@ int main(int argc, char *argv[])
 					printf("\nUpdate finished. Run 'timsim' again to use version %s.\n", remote);
 					return 0;
 				}
-				printf("\nUpdate failed. You can try again later with 'timsim --update'.\n");
+				printf("\n%sUpdate failed. You can try again later with 'timsim --update'.%s\n", E_RED, E_RESET);
 				if (upd_mode) return 1;
 			}
 			printf("\n");
@@ -524,7 +599,7 @@ int main(int argc, char *argv[])
 
 		if (mf == NULL)
 		{
-			fprintf(stderr, "timsim: cannot open '%s': %s\n", file_path, strerror(errno));
+			fprintf(stderr, "%stimsim: cannot open '%s': %s%s\n", E_RED, file_path, strerror(errno), E_RESET);
 			return 2;
 		}
 
@@ -696,7 +771,7 @@ int main(int argc, char *argv[])
 
 		if (file_errors > 0)
 		{
-			fprintf(stderr, "%s: %d error(s) found, machine not loaded.\n", file_path, file_errors);
+			fprintf(stderr, "%s%s: %d error(s) found, machine not loaded.%s\n", E_RED, file_path, file_errors, E_RESET);
 			return 2;
 		}
 		if (!quiet)
@@ -705,7 +780,7 @@ int main(int argc, char *argv[])
 	else
 	{
 		printf("========================================\n");
-		printf("   TimSim v%s - Turing Machine Simulator\n", TIMSIM_VERSION);
+		printf("   %s%sTimSim v%s - Turing Machine Simulator%s\n", C_BOLD, C_CYAN, TIMSIM_VERSION, C_RESET);
 		printf("========================================\n");
 		printf("Rules used by this simulator:\n");
 		printf(" - States are whole numbers from 0 to %d\n", MAX_STATE);
@@ -1092,7 +1167,7 @@ int main(int argc, char *argv[])
 		if (reject[k] == start_state) start_is_halting = 1;
 	if (!start_has_transition && !start_is_halting)
 	{
-		fprintf(stderr, "Warning: start state %d has no outgoing transition, the machine will halt immediately.\n", start_state);
+		fprintf(stderr, "%sWarning:%s start state %d has no outgoing transition, the machine will halt immediately.\n", E_YELLOW, E_RESET, start_state);
 		warnings++;
 	}
 
@@ -1103,7 +1178,7 @@ int main(int argc, char *argv[])
 			if (t[i].to == accept[k]) reachable = 1;
 		if (!reachable)
 		{
-			fprintf(stderr, "Warning: accepting state %d is never used as a next state, it can never be reached.\n", accept[k]);
+			fprintf(stderr, "%sWarning:%s accepting state %d is never used as a next state, it can never be reached.\n", E_YELLOW, E_RESET, accept[k]);
 			warnings++;
 		}
 	}
@@ -1117,14 +1192,14 @@ int main(int argc, char *argv[])
 			if (reject[k] == t[i].from) halting_from = 1;
 		if (halting_from)
 		{
-			fprintf(stderr, "Warning: transition %d starts from halting state %d, it will never be used.\n", i + 1, t[i].from);
+			fprintf(stderr, "%sWarning:%s transition %d starts from halting state %d, it will never be used.\n", E_YELLOW, E_RESET, i + 1, t[i].from);
 			warnings++;
 		}
 	}
 
 	if (check_only)
 	{
-		printf("OK: '%s' is a valid deterministic machine (%d transitions, %d warning(s)).\n", file_path, n, warnings);
+		printf("%sOK: '%s' is a valid deterministic machine (%d transitions, %d warning(s)).%s\n", C_GREEN, file_path, n, warnings, C_RESET);
 		return 0;
 	}
 
@@ -1252,13 +1327,13 @@ int main(int argc, char *argv[])
 			// ===================== Section-8 : Output (trace) =====================
 			if (show_trace)
 			{
-				printf("Step %5d | state %2d | ", steps, state);
+				printf("Step %5d | state %s%2d%s | ", steps, C_CYAN, state, C_RESET);
 				for (int p = lo; p <= hi; p++)
 				{
-					if (p == head) printf("[%c]", tape[p]);
+					if (p == head) printf("%s%s[%c]%s", C_BOLD, C_YELLOW, tape[p], C_RESET);
 					else printf(" %c ", tape[p]);
 				}
-				if (steps > 0) printf("  (transition %d)", last_used);
+				if (steps > 0) printf("  %s(transition %d)%s", C_DIM, last_used, C_RESET);
 				printf("\n");
 			}
 
@@ -1339,18 +1414,18 @@ int main(int argc, char *argv[])
 		{
 			printf("\n========================================\n");
 			if (result == 1)
-				printf("RESULT: ACCEPTED (reached accepting state %d)\n", state);
+				printf("%sRESULT: ACCEPTED (reached accepting state %d)%s\n", C_GREEN, state, C_RESET);
 			else if (result == 2)
-				printf("RESULT: REJECTED (reached rejecting state %d)\n", state);
+				printf("%sRESULT: REJECTED (reached rejecting state %d)%s\n", C_RED, state, C_RESET);
 			else if (result == 3)
-				printf("RESULT: REJECTED (halted: no transition for state %d reading '%c')\n", state, missing_symbol);
+				printf("%sRESULT: REJECTED (halted: no transition for state %d reading '%c')%s\n", C_RED, state, missing_symbol, C_RESET);
 			else if (result == 4)
 			{
-				printf("RESULT: STEP LIMIT REACHED (%d steps) - no decision made\n", step_limit);
+				printf("%sRESULT: STEP LIMIT REACHED (%d steps) - no decision made%s\n", C_YELLOW, step_limit, C_RESET);
 				printf("        The machine may be looping forever, or it may need a bigger limit.\n");
 			}
 			else
-				printf("RESULT: TAPE LIMIT REACHED (the tape is limited to %d cells each way) - no decision made\n", TAPE_START);
+				printf("%sRESULT: TAPE LIMIT REACHED (the tape is limited to %d cells each way) - no decision made%s\n", C_YELLOW, TAPE_START, C_RESET);
 
 			printf("Steps taken : %d\n", steps);
 			printf("Final state : %d\n", state);

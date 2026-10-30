@@ -77,8 +77,14 @@ timsim --help                   # all options
 | `--check-update` | Check GitHub for a newer version |
 | `--update` | Install the newest version |
 | `--no-update-check` | Skip the automatic daily update check |
+| `--color=WHEN` | Colour: `auto` (default), `always`, `never` |
 | `-v`, `--version` | Show the version |
 | `-h`, `--help` | Show help |
+
+Colour is used only when the output goes to a terminal, `NO_COLOR` is unset and
+`TERM` is not `dumb`. `--color=always` forces it, `--color=never` turns it off, and
+`-q` output is always plain, so piped and scripted output stays free of escape
+codes. The verdict words (`ACCEPTED`, `REJECTED`) never depend on colour.
 
 ### Exit status with `--input`
 
@@ -172,6 +178,7 @@ newest release while Linux builds `main`):
 | Variable | Used by | Meaning |
 | --- | --- | --- |
 | `TIMSIM_NO_UPDATE_CHECK` | `timsim` | Set to any value to skip the automatic update check |
+| `NO_COLOR` | `timsim` | Non-empty value turns colour off (in `auto` mode) |
 | `TIMSIM_VERSION_URL` | `timsim` | Where the version is read from (test hook) |
 | `TIMSIM_INSTALL_URL` | `timsim` | Where the installer is read from (test hook) |
 | `TIMSIM_REPO` | `install.sh` | Git repository to build from |
