@@ -103,7 +103,9 @@ if [ -w "$PREFIX/bin" ]; then REMOVE_CMD="rm"; fi
 echo "========================================"
 echo " TimSim installed successfully!"
 echo " Type 'timsim' anywhere to run it."
-echo " To remove it later:  $REMOVE_CMD $PREFIX/bin/timsim"
+echo " Example machines:    $PREFIX/share/timsim/examples"
+echo " Try:  timsim $PREFIX/share/timsim/examples/palindrome.tm -i 0110"
+echo " To remove it later:  $REMOVE_CMD $PREFIX/bin/timsim && $REMOVE_CMD -r $PREFIX/share/timsim"
 echo "========================================"
 
 case ":$PATH:" in

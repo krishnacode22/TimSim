@@ -1,6 +1,6 @@
 #!/bin/sh
 # TimSim test suite.  Usage: sh tests/run_tests.sh ./timsim   (or: make test)
-# Update-check tests use local file:// URLs, so no internet is needed.
+# No internet is needed.
 BIN=$(cd "$(dirname "$1")" && pwd)/$(basename "${1:-timsim}")
 cd "$(dirname "$0")/.." || exit 1
 ROOT=$(pwd)
@@ -8,9 +8,6 @@ TMP=$(mktemp -d)
 # A Windows timsim.exe can not open MSYS paths such as /tmp/..., so give it a native path.
 if command -v cygpath >/dev/null 2>&1; then TMP=$(cygpath -m "$TMP"); fi
 trap 'rm -rf "$TMP"' EXIT
-export TIMSIM_NO_UPDATE_CHECK=1
-# the update tests must not touch the real daily-check cache (~/.cache/timsim)
-export XDG_CACHE_HOME="$TMP/cache_cli"
 pass=0
 fail=0
 
@@ -73,9 +70,21 @@ printf 'start 0\naccept 9\n0 0 _ _ R\n0 0 a a R\n' > "$TMP/right.tm"
 expect "tape edge is no decision" 3 "TAPE_LIMIT"     "$BIN" "$TMP/right.tm" -i "" -l 20000 -q
 expect "tape edge message"       3 "TAPE LIMIT REACHED" "$BIN" "$TMP/right.tm" -i "" -l 20000
 expect "--run FILE"              0 "1100"            "$BIN" --run examples/binary_increment.tm -i 1011 -q
-expect "--no-update-check"       0 "1100"            "$BIN" --no-update-check examples/binary_increment.tm -i 1011 -q
 expect "--check reports warnings" 0 "never used as a next state" "$BIN" examples/loops_forever.tm --check
 expect "--demo quiet"            0 "1100"            "$BIN" --demo -q
+expect "error summary"           2 "5 error(s) found"      "$BIN" tests/bad/many_errors.tm --check
+expect "bad --limit value"       2 "step limit must be"    "$BIN" examples/palindrome.tm -i 1 -l abc
+expect "demo plus file"          2 "either --demo or"      "$BIN" --demo examples/palindrome.tm
+expect "reject state message"    1 "reached rejecting state 3" "$BIN" examples/even_zeros.tm -i 10
+printf 'start 0   # begin here\naccept 1  # done\n\n# a whole-line comment\n0 1 a b R   # rule\n' > "$TMP/comments.tm"
+expect "comments are ignored"    0 "ACCEPTED"        "$BIN" "$TMP/comments.tm" -i a -q
+LONG200=$(printf '%0200d' 0 | tr 0 1)
+LONG201=$(printf '%0201d' 0 | tr 0 1)
+expect "input of 200 chars is ok" 0 "ACCEPTED"       "$BIN" examples/even_zeros.tm -i "$LONG200" -q
+expect "input of 201 chars fails" 2 "too long"       "$BIN" examples/even_zeros.tm -i "$LONG201" -q
+i=0; { echo "start 0"; echo "accept 31"; while [ $i -le 30 ]; do echo "$i $((i + 1)) a a R"; i=$((i + 1)); done; } > "$TMP/many.tm"
+expect "31 transitions refused"  2 "too many transitions" "$BIN" "$TMP/many.tm" --check
+for f in examples/*.tm; do expect "example is valid: $f" 0 "valid deterministic" "$BIN" "$f" --check; done
 if printf '%s' "$(tr -d ' \r\n' < VERSION)" | grep -Ec '^[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then ok "VERSION is X.Y.Z"; else bad "VERSION is X.Y.Z"; fi
 
 echo "Colour"
@@ -115,42 +124,29 @@ if grep -q "already exists" "$TMP/session2.out"; then ok "asks before overwritin
 printf 'abc\n0\n1\n' | "$BIN" > "$TMP/bad.out" 2>&1; code=$?
 if [ $code -eq 1 ] && grep -q "Input ended unexpectedly" "$TMP/bad.out"; then ok "EOF does not hang"; else bad "EOF does not hang (exit $code)"; fi
 
-echo "Update checker (local file:// URLs)"
-if ! command -v curl >/dev/null 2>&1; then
-    # wget can not read file:// URLs, and these tests must not use the internet
-    echo "  SKIP  update tests (curl is needed for file:// URLs)"
+echo "Install layout"
+# make install / uninstall into a temporary folder (only when testing the ./timsim built by make)
+if [ "$BIN" = "$ROOT/timsim" ] && [ -f Makefile ] && command -v make >/dev/null 2>&1; then
+    if make install PREFIX="$TMP/prefix" >/dev/null 2>&1 \
+        && [ -x "$TMP/prefix/bin/timsim" ] && [ -f "$TMP/prefix/share/timsim/examples/palindrome.tm" ]; then
+        ok "make install: program and examples"
+    else
+        bad "make install: program and examples"
+    fi
+    expect "installed example runs"  0 "ACCEPTED" "$TMP/prefix/bin/timsim" "$TMP/prefix/share/timsim/examples/palindrome.tm" -i 0110 -q
+    make uninstall PREFIX="$TMP/prefix" >/dev/null 2>&1
+    if [ ! -e "$TMP/prefix/bin/timsim" ] && [ ! -e "$TMP/prefix/share/timsim" ]; then ok "make uninstall removes everything"; else bad "make uninstall removes everything"; fi
 else
-    V=$(tr -d ' \r\n' < VERSION)
-    echo "99.0.0" > "$TMP/v_new"; echo "$V" > "$TMP/v_same"; echo "<html>not a version</html>" > "$TMP/v_junk"
-    expect "newer version found"     4 "99.0.0"            env TIMSIM_VERSION_URL="file://$TMP/v_new"  "$BIN" --check-update
-    expect "already up to date"      0 "up to date"        env TIMSIM_VERSION_URL="file://$TMP/v_same" "$BIN" --check-update
-    expect "junk is not trusted"     1 "Could not check"   env TIMSIM_VERSION_URL="file://$TMP/v_junk" "$BIN" --check-update
-    expect "unreachable version file" 1 "Could not check"  env TIMSIM_VERSION_URL="file://$TMP/nothing" "$BIN" --check-update
-    expect "unsafe URL refused"      1 "unsafe characters" env TIMSIM_VERSION_URL="file:///x;touch $TMP/pwned" "$BIN" --check-update
-    if [ ! -e "$TMP/pwned" ]; then ok "no shell injection via URL"; else bad "shell injection via URL"; fi
-    printf '#!/bin/sh\necho "FAKE-INSTALLER prefix=$PREFIX"\n' > "$TMP/fake_install.sh"
-    expect "--update runs installer" 0 "FAKE-INSTALLER prefix=" env TIMSIM_VERSION_URL="file://$TMP/v_new" TIMSIM_INSTALL_URL="file://$TMP/fake_install.sh" "$BIN" --update
-    expect "--update failed download" 1 "Update failed"     env TIMSIM_VERSION_URL="file://$TMP/v_new" TIMSIM_INSTALL_URL="file://$TMP/missing.sh" "$BIN" --update
-    expect "--update when current"   0 "up to date"        env TIMSIM_VERSION_URL="file://$TMP/v_same" "$BIN" --update
+    echo "  SKIP  install tests (only run for the ./timsim built by make)"
 fi
 
-# automatic check needs a real terminal, so run inside a pseudo terminal with script(1)
+echo "Terminal behaviour"
+# animation only redraws on a real terminal, so run inside a pseudo terminal with script(1)
 if script -qec true /dev/null >/dev/null 2>&1; then
-    unset TIMSIM_NO_UPDATE_CHECK
-    export XDG_CACHE_HOME="$TMP/cache" TIMSIM_VERSION_URL="file://$TMP/v_new"
-    out=$(printf 's\n1011\nn\nn\n' | script -qec "$BIN examples/binary_increment.tm" /dev/null 2>&1)
-    if printf '%s' "$out" | grep -q "new version of TimSim is available"; then ok "auto check offers update"; else bad "auto check offers update"; fi
-    if grep -q "99.0.0" "$TMP/cache/timsim/update_check" 2>/dev/null; then ok "skip choice remembered"; else bad "skip choice remembered"; fi
-    out=$(printf '1011\nn\nn\n' | script -qec "$BIN examples/binary_increment.tm" /dev/null 2>&1)
-    if printf '%s' "$out" | grep -q "new version of TimSim"; then bad "no second prompt within a day"; else ok "no second prompt within a day"; fi
-    echo "1 -" > "$TMP/cache/timsim/update_check"   # pretend the last check was long ago
-    out=$(printf 'n\n1011\nn\nn\n' | script -qec "$BIN examples/binary_increment.tm" /dev/null 2>&1)
-    if printf '%s' "$out" | grep -q "new version of TimSim is available"; then ok "re-checks after a day"; else bad "re-checks after a day"; fi
-    out=$(printf '' | TIMSIM_NO_UPDATE_CHECK=1 script -qec "$BIN examples/binary_increment.tm -i 1011 --animate 20" /dev/null 2>&1)
+    out=$(printf '' | script -qec "$BIN examples/binary_increment.tm -i 1011 --animate 20" /dev/null 2>&1)
     if printf '%s' "$out" | grep -q "RESULT: ACCEPTED" && printf '%s' "$out" | grep -q "$(printf '\r')"; then ok "animate redraws in a tty"; else bad "animate redraws in a tty"; fi
-    export TIMSIM_NO_UPDATE_CHECK=1
 else
-    echo "  SKIP  automatic check tests (script(1) with -c not available)"
+    echo "  SKIP  terminal tests (script(1) with -c not available)"
 fi
 
 echo

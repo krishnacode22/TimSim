@@ -3,7 +3,8 @@
 #   irm https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.ps1 | iex
 #
 # It downloads timsim.exe from the latest GitHub release into
-# %LOCALAPPDATA%\Programs\TimSim and adds that folder to your user PATH.
+# %LOCALAPPDATA%\Programs\TimSim (example machines go in its examples\ folder)
+# and adds that folder to your user PATH.
 # No administrator rights are needed.
 #
 # Optional environment variables (set them before running the command):
@@ -90,6 +91,19 @@
         if (Test-Path $tmp) { Remove-Item -Force $tmp -ErrorAction SilentlyContinue }
     }
 
+    # ---- example machines (small text files; a failure here does not fail the install) ----
+    $exDir = Join-Path $dir 'examples'
+    $exBase = 'https://raw.githubusercontent.com/krishnacode22/TimSim/main/examples'
+    $exFiles = 'palindrome.tm', 'binary_increment.tm', 'even_zeros.tm', 'loops_forever.tm'
+    try {
+        New-Item -ItemType Directory -Force -Path $exDir | Out-Null
+        foreach ($f in $exFiles) {
+            Invoke-WebRequest -UseBasicParsing -Uri "$exBase/$f" -OutFile (Join-Path $exDir $f)
+        }
+    } catch {
+        Write-Host " (could not download the example machines: $($_.Exception.Message))"
+    }
+
     # ---- add to PATH (this window and all future ones) ----
     $pathNote = ''
     if (-not $onPath) {
@@ -106,6 +120,8 @@
     $location = " Location: $exe $pathNote".TrimEnd()
     Write-Host $location
     Write-Host " Type 'timsim' to run it, or 'timsim --help' for options."
+    Write-Host " Example machines: $exDir"
+    Write-Host " Try:  timsim `"$exDir\palindrome.tm`" -i 0110"
     Write-Host " Remove it later:  `$env:TIMSIM_UNINSTALL=1; irm https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.ps1 | iex"
     Write-Host '========================================'
 }

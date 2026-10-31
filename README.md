@@ -16,20 +16,40 @@
 
 ---
 
+## Features
+
+- **Three ways to get a machine:** type it in interactively, load a machine file, or try the built-in demo (`--demo`).
+- **Strict validation:** every problem in a machine file is reported with its line number; non-deterministic rules (two transitions for the same state and symbol) and states that are both accepting and rejecting are refused. `--check` validates a file without running it.
+- **Helpful warnings:** an accepting state nothing leads to, transitions out of a halting state (they can never run), and a start state without any transition.
+- **Several ways to watch a run:** a result summary, a step-by-step trace (`-t`), a debugger-style walk with Enter between steps (`--step`), an animated tape (`--animate`), or just the verdict (`-q`).
+- **Never hangs:** a step limit (1 to 100,000) and a fixed-size tape end a run with "no decision" instead of an endless loop.
+- **Script friendly:** exit codes for accepted, rejected, error and no decision; plain output when piped; colour only on a terminal (`NO_COLOR` and `--color` respected).
+- **Friendly interactive mode:** a bad line is rejected on the spot and only that line is re-entered; save the machine to a file; run as many inputs as you like on the same machine.
+- **Multiple accepting and rejecting states** (up to 10 each) and up to 30 transitions.
+- **Runs everywhere:** Linux, macOS, WSL and Windows, no dependencies, one-line installers, and a test suite (`make test`).
+
+---
+
 ## Quick Installation
 
 ### Linux / macOS / WSL
 
-Needs `git`, `make` and a C compiler (`cc`, `gcc` or `clang`); anything missing is installed with the system package manager. The installer builds from source and installs `timsim` to `/usr/local/bin` (it asks for `sudo` only if needed):
+Needs `git`, `make` and a C compiler (`cc`, `gcc` or `clang`); anything missing is installed with the system package manager. The installer builds from source and installs `timsim` to `/usr/local/bin` (it asks for `sudo` only if needed). The example machines are installed too, to `/usr/local/share/timsim/examples/`:
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.sh)"
 ```
 
-*Want to install without root/admin privileges?*
+*Want to install without root/admin privileges?* Everything then goes under `~/.local` (examples in `~/.local/share/timsim/examples/`):
 
 ```sh
 PREFIX=$HOME/.local sh -c "$(curl -fsSL https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.sh)"
+```
+
+Then try an example:
+
+```sh
+timsim /usr/local/share/timsim/examples/palindrome.tm -i 0110
 ```
 
 ### Windows (PowerShell)
@@ -40,7 +60,11 @@ Open **PowerShell** (no administrator rights needed) and run:
 irm https://raw.githubusercontent.com/krishnacode22/TimSim/main/install.ps1 | iex
 ```
 
-It downloads `timsim.exe` from the [latest release](https://github.com/krishnacode22/TimSim/releases/latest) into `%LOCALAPPDATA%\Programs\TimSim` and adds that folder to your user `PATH`. Then type `timsim` in any terminal. If the command is not found, open a new terminal window.
+It downloads `timsim.exe` from the [latest release](https://github.com/krishnacode22/TimSim/releases/latest) into `%LOCALAPPDATA%\Programs\TimSim`, puts the example machines in its `examples\` folder, and adds the folder to your user `PATH`. Then type `timsim` in any terminal. If the command is not found, open a new terminal window.
+
+```powershell
+timsim "$env:LOCALAPPDATA\Programs\TimSim\examples\palindrome.tm" -i 0110
+```
 
 To remove it again:
 
@@ -49,6 +73,10 @@ $env:TIMSIM_UNINSTALL=1; irm https://raw.githubusercontent.com/krishnacode22/Tim
 ```
 
 You can also download `timsim.exe` from the Releases page and run it from anywhere. WSL users can follow the Linux steps instead.
+
+### Updating
+
+Run the install command again. It replaces the old version with the newest one.
 
 ---
 
@@ -78,9 +106,6 @@ timsim --help                   # all options
 | `--demo` | Run the built-in binary incrementer |
 | `--step` | Pause between steps; press Enter to continue (implies `-t`) |
 | `--animate MS` | Redraw the tape every `MS` ms, 10 to 2000 (implies `-t`; only on a terminal) |
-| `--check-update` | Check GitHub for a newer version |
-| `--update` | Install the newest version |
-| `--no-update-check` | Skip the automatic daily update check |
 | `--color=WHEN` | Colour: `auto` (default), `always`, `never` |
 | `-v`, `--version` | Show the version |
 | `-h`, `--help` | Show help |
@@ -104,6 +129,8 @@ codes. The verdict words (`ACCEPTED`, `REJECTED`) never depend on colour.
 | `2` | Error (bad option, bad machine file, bad input string) |
 | `3` | No decision (step limit or tape boundary reached) |
 
+`--check` exits with `0` for a valid machine and `2` for an invalid one.
+
 With `--quiet` the verdict is one line: `ACCEPTED`, `REJECTED`, `STEP_LIMIT` or `TAPE_LIMIT`, followed by the final tape.
 
 That makes TimSim easy to use in scripts:
@@ -112,6 +139,8 @@ That makes TimSim easy to use in scripts:
 if timsim examples/palindrome.tm -i 0110 -q > /dev/null; then echo "palindrome"; fi
 timsim examples/binary_increment.tm -i 1011 -q     # prints ACCEPTED, then 1100
 ```
+
+(Paths are relative to a cloned repository. For an installed copy, use the `share/timsim/examples/` folder shown above.)
 
 ### Interactive prompts
 
@@ -154,47 +183,20 @@ tests/bad/many_errors.tm: no transitions found
 tests/bad/many_errors.tm: 5 error(s) found, machine not loaded.
 ```
 
+`start` and `accept` are required; `reject` and `limit` are optional. Every
+`start`, `accept`, `reject` and `limit` line may appear only once.
+
 Problems that belong to the whole file (a missing `start` line, no transitions)
 have no line number. Warnings and the trace refer to transitions by their
 position in the table (`transition 2`), not by their line in the file.
 
----
+Beyond errors, TimSim prints **warnings** (the machine still runs) when an
+accepting state is never used as a next state, when a transition starts from a
+halting state (it can never be used), or when the start state has no transition:
 
-## Updates
-
-- Once a day, when you start TimSim in a terminal, it asks GitHub for the newest `VERSION` file. If a newer version exists you are asked: **[y]es / [n]o / [s]kip this version**.
-- Nothing is installed without your answer. The check never runs in scripts (`--input`, `--check`, pipes) or with `--demo`, and never blocks for more than about 3 seconds (it uses one tool: `curl`, or `wget` when `curl` is missing).
-- `timsim --check-update` only reports. `timsim --update` runs the official installer again: `install.sh` on Linux/macOS (into the same folder TimSim was installed in) and `install.ps1` on Windows (which downloads the newest `timsim.exe` from the releases page).
-- Turn the automatic check off with `--no-update-check` or `TIMSIM_NO_UPDATE_CHECK=1` (`export TIMSIM_NO_UPDATE_CHECK=1` on Linux/macOS, `$env:TIMSIM_NO_UPDATE_CHECK=1` in PowerShell).
-- It needs `curl` or `wget` (on Windows, the `curl.exe` that comes with Windows 10 and later). Without them the check is silently skipped.
-
-| Command | Exit status |
-| --- | --- |
-| `timsim --check` | `0` valid machine, `2` invalid |
-| `timsim --check-update` | `0` up to date, `1` could not check, `4` a newer version exists |
-| `timsim --update` | `0` installed (or already current), `1` failed |
-
-**Releasing a new version** (the order matters, because Windows downloads the
-newest release while Linux builds `main`):
-
-1. Change `VERSION` in your working copy.
-2. Run `make windows` and upload `timsim.exe` to the new GitHub release.
-3. Check the uploaded file with `timsim.exe --version`.
-4. Only then push the `VERSION` change to `main`.
-
-### Environment variables
-
-| Variable | Used by | Meaning |
-| --- | --- | --- |
-| `TIMSIM_NO_UPDATE_CHECK` | `timsim` | Set to any value to skip the automatic update check |
-| `NO_COLOR` | `timsim` | Non-empty value turns colour off (in `auto` mode) |
-| `TIMSIM_VERSION_URL` | `timsim` | Where the version is read from (test hook) |
-| `TIMSIM_INSTALL_URL` | `timsim` | Where the installer is read from (test hook) |
-| `TIMSIM_REPO` | `install.sh` | Git repository to build from |
-| `PREFIX` | `install.sh`, `make install` | Install folder (default `/usr/local`) |
-| `TIMSIM_INSTALL_DIR` | `install.ps1` | Install folder on Windows |
-| `TIMSIM_DOWNLOAD_URL` | `install.ps1` | Where `timsim.exe` is downloaded from |
-| `TIMSIM_UNINSTALL` | `install.ps1` | `1` removes TimSim instead of installing |
+```text
+Warning: accepting state 1 is never used as a next state, it can never be reached.
+```
 
 ---
 
@@ -211,12 +213,15 @@ newest release while Linux builds `main`):
 | **Step limit** | 1 to 100,000 (default 1,000). Hitting it means "no decision", not "loops forever" |
 | **Tape** | Fixed size: 10,000 cells each side of the start. The run stops with a message at either edge |
 | **Input string** | Up to 200 characters |
+| **Size** | Up to 30 transitions, up to 10 accepting and 10 rejecting states |
 
 A valid transition table does not prove that a machine is correct or that it halts.
 
 ---
 
 ## Example machines (`examples/`)
+
+The example machines are in `examples/` in the repository, and the installers copy the `.tm` files to `share/timsim/examples/` (Linux/macOS) or `examples\` next to `timsim.exe` (Windows).
 
 | File | Description | Try |
 | --- | --- | --- |
@@ -238,18 +243,32 @@ git clone https://github.com/krishnacode22/TimSim.git
 cd TimSim
 make                                # build ./timsim
 make test                           # run the test suite (no internet needed)
-sudo make install                   # install to /usr/local/bin
+sudo make install                   # install to /usr/local
 make install PREFIX=$HOME/.local    # or install without root
 make windows                        # cross-compile timsim.exe (needs mingw-w64)
 ```
 
-Uninstall with `sudo make uninstall` (or `sudo rm /usr/local/bin/timsim`). The
-`examples/` folder only exists in the repository, it is not installed.
+`make install` installs the program and the example machines. Uninstall with
+`sudo make uninstall` (use the same `PREFIX` you installed with).
 
 The build uses C99 with POSIX calls (`-std=gnu99`), so `cc`, `gcc` and `clang`
-all work. The install prefix is compiled into the program, so a change of
-`PREFIX` triggers a rebuild.
+all work.
 
+### Environment variables
+
+| Variable | Used by | Meaning |
+| --- | --- | --- |
+| `NO_COLOR` | `timsim` | Non-empty value turns colour off (in `auto` mode) |
+| `PREFIX` | `install.sh`, `make install` | Install folder (default `/usr/local`) |
+| `TIMSIM_REPO` | `install.sh` | Git repository to build from |
+| `TIMSIM_INSTALL_DIR` | `install.ps1` | Install folder on Windows |
+| `TIMSIM_DOWNLOAD_URL` | `install.ps1` | Where `timsim.exe` is downloaded from |
+| `TIMSIM_UNINSTALL` | `install.ps1` | `1` removes TimSim instead of installing |
+
+**Releasing a new version:** change `VERSION`, run `make windows`, upload `timsim.exe`
+to a new GitHub release, check it with `timsim.exe --version`, then push to `main`.
+(Windows users get the latest release, Linux/macOS users get `main`, so publish the
+`.exe` first.)
 
 ## License
 

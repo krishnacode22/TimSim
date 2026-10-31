@@ -1,49 +1,33 @@
 // TimSim - Turing machine simulator
 // Author - Krishna Singh
-// Sections: 1 constants | 2 configuration | 3 command line | 4 update checker
-//           5 getting the machine | 6 validation | 7 execution | 8/9 output
+// Sections: 1 constants | 2 configuration | 3 command line | 4 getting the machine
+//           5 validation | 6 execution | 7/8 output
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
 #include <time.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 
 // Linux / macOS / WSL use the POSIX calls, Windows (MinGW build) uses the underscore versions.
 #ifdef _WIN32
 #include <io.h>
-#include <direct.h>
 #include <windows.h>
 #define tim_isatty _isatty
-#define tim_popen _popen
-#define tim_pclose _pclose
-#define tim_mkdir(p) _mkdir(p)
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
 #define STDERR_FILENO 2
-#define URL_SAFE_CHARS ":/._-~?=@+,"      // & and % are special for cmd.exe, so they are not allowed
 #else
 #include <unistd.h>
 #define tim_isatty isatty
-#define tim_popen popen
-#define tim_pclose pclose
-#define tim_mkdir(p) mkdir(p, 0755)
-#define URL_SAFE_CHARS ":/._-~?=&%@+,"
 #endif
 
 // ===================== Section-1 : Constants and data structures =====================
-// TIMSIM_VERSION and TIMSIM_PREFIX are passed in by the Makefile (version comes from the VERSION file)
+// TIMSIM_VERSION is passed in by the Makefile (it comes from the VERSION file)
 #ifndef TIMSIM_VERSION
 #define TIMSIM_VERSION "0.0.0"
 #endif
-#ifndef TIMSIM_PREFIX
-#define TIMSIM_PREFIX "/usr/local"
-#endif
 #define REPO_URL "https://github.com/krishnacode22/TimSim"
-#define RAW_URL "https://raw.githubusercontent.com/krishnacode22/TimSim/main"
-#define CHECK_INTERVAL 86400  // automatic update check happens at most once a day (seconds)
 
 #define MAX_TRANSITIONS 30
 #define MAX_STATE 99          // states are whole numbers from 0 to MAX_STATE
@@ -55,7 +39,7 @@
 #define MIN_ANIMATE 10        // --animate delay in milliseconds
 #define MAX_ANIMATE 2000
 #define BLANK '_'             // the blank symbol of the tape
-#define TAPE_SIZE 20001       // fixed tape size (the head can never go past its ends, see Section-7 and Section-9)
+#define TAPE_SIZE 20001       // fixed tape size (the head can never go past its ends, see Section-6 and Section-8)
 #define TAPE_START 10000      // the head starts in the middle, so it has room on both sides
 #define LINE_SIZE 256
 
@@ -204,8 +188,6 @@ int main(int argc, char *argv[])
 	int quiet = 0;
 	int check_only = 0;
 	int demo = 0;
-	int no_update = 0;
-	int upd_mode = 0;             // 0 = automatic check, 2 = --check-update, 3 = --update
 	int color_mode = 0;           // 0 = auto, 1 = always, 2 = never
 	long cli_limit = 0;
 
@@ -225,9 +207,6 @@ int main(int argc, char *argv[])
 		else if (strcmp(arg, "--check") == 0) check_only = 1;
 		else if (strcmp(arg, "--demo") == 0) demo = 1;
 		else if (strcmp(arg, "--step") == 0) step_mode = 1;
-		else if (strcmp(arg, "--check-update") == 0) upd_mode = 2;
-		else if (strcmp(arg, "--update") == 0) upd_mode = 3;
-		else if (strcmp(arg, "--no-update-check") == 0) no_update = 1;
 		else if (strncmp(arg, "--color=", 8) == 0)
 		{
 			const char *when = arg + 8;
@@ -330,26 +309,20 @@ int main(int argc, char *argv[])
 		printf("      --demo           run the built-in binary incrementer\n");
 		printf("      --step           pause between steps (press Enter); turns the trace on\n");
 		printf("      --animate MS     redraw the tape every MS ms (%d to %d; needs a terminal)\n", MIN_ANIMATE, MAX_ANIMATE);
-		printf("      --check-update   check GitHub for a newer version\n");
-		printf("      --update         install the newest version from GitHub\n");
-		printf("      --no-update-check  skip the automatic daily update check\n");
 		printf("      --color=WHEN     colour the output: auto (default), always, never\n");
 		printf("  -v, --version        show the version\n");
 		printf("  -h, --help           show this help\n\n");
 		printf("Exit status with --input:  0 accepted, 1 rejected, 2 error, 3 no decision\n");
 		printf("                           (step limit or tape boundary reached)\n");
 		printf("Exit status of --check:    0 valid, 2 invalid\n");
-		printf("Exit status of --check-update / --update:\n");
-		printf("                           0 up to date or updated, 1 could not check or\n");
-		printf("                           failed, 4 a newer version is available\n\n");
+		printf("\n");
 		printf("Machine file format (one item per line, text after # is a comment):\n");
 		printf("  start 0                 start state\n");
 		printf("  accept 2                accepting state(s), separated by spaces\n");
 		printf("  reject 3                rejecting state(s), optional\n");
 		printf("  limit 1000              step limit, optional\n");
 		printf("  0 1 a b R               transition: from to read write move(L/R/S)\n\n");
-		printf("Environment: TIMSIM_NO_UPDATE_CHECK=1 turns the automatic update check off,\n");
-		printf("             a non-empty NO_COLOR turns colour off.\n");
+		printf("Environment: a non-empty NO_COLOR turns colour off.\n");
 		printf("More information: %s\n", REPO_URL);
 		return 0;
 	}
@@ -374,237 +347,7 @@ int main(int argc, char *argv[])
 		return 2;
 	}
 
-	// ===================== Section-4 : Update checker =====================
-	// Asks GitHub for the VERSION file (using curl or wget, whichever exists).
-	// Automatic check: only in a real terminal, at most once a day, never in scripts.
-	// Nothing is ever installed without the user saying yes.
-	char cache_dir[512] = "";   // where the "last checked" note is kept
-	char cache_file[600] = "";
-	char skipped[32] = "-";     // version the user chose to skip
-	long last_check = 0;
-	time_t now = time(NULL);
-	int do_check = upd_mode;
-	if (do_check == 0 && !no_update && getenv("TIMSIM_NO_UPDATE_CHECK") == NULL
-		&& strcmp(TIMSIM_VERSION, "0.0.0") != 0   // a binary built without the Makefile
-		&& cli_input == NULL && !check_only && !demo
-		&& tim_isatty(STDIN_FILENO) && tim_isatty(STDOUT_FILENO))
-		do_check = 1;
-
-	if (do_check)
-	{
-		const char *xdg = getenv("XDG_CACHE_HOME");
-		const char *home = getenv("HOME");
-#ifdef _WIN32
-		if (xdg == NULL || xdg[0] == '\0') xdg = getenv("LOCALAPPDATA"); // C:\Users\name\AppData\Local
-#endif
-
-		if (xdg != NULL && xdg[0] != '\0')
-			snprintf(cache_dir, sizeof(cache_dir), "%s/timsim", xdg);
-		else if (home != NULL && home[0] != '\0')
-			snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/timsim", home);
-		if (cache_dir[0] != '\0')
-			snprintf(cache_file, sizeof(cache_file), "%s/update_check", cache_dir);
-
-		// cache file = "<time of last check> <version the user chose to skip>"
-		if (cache_file[0] != '\0')
-		{
-			FILE *cf = fopen(cache_file, "r");
-			if (cf != NULL)
-			{
-				if (fscanf(cf, "%ld %31s", &last_check, skipped) < 1) last_check = 0;
-				fclose(cf);
-			}
-		}
-
-		// automatic check: no cache location, or checked less than a day ago -> do nothing
-		if (upd_mode == 0 && (cache_file[0] == '\0'
-			|| (last_check > 0 && now >= last_check && now - last_check < CHECK_INTERVAL)))
-			do_check = 0;
-	}
-
-	if (do_check)
-	{
-		const char *url = getenv("TIMSIM_VERSION_URL"); // can be changed for testing
-		char cmd[1024];
-		char remote[64] = "";
-		int url_ok = 1;
-		int fetched = 0;
-		int valid = 0;
-		int rmaj = 0, rmin = 0, rpat = 0;
-		int lmaj = 0, lmin = 0, lpat = 0;
-		int newer = 0;
-
-		if (url == NULL || url[0] == '\0') url = RAW_URL "/VERSION";
-		for (const char *c = url; *c != '\0'; c++)
-			if (!isalnum((unsigned char)*c) && strchr(URL_SAFE_CHARS, *c) == NULL) url_ok = 0;
-		if (!url_ok && upd_mode)
-		{				fprintf(stderr, "%stimsim: TIMSIM_VERSION_URL contains unsafe characters.%s\n", E_RED, E_RESET);
-			return 1;
-		}
-
-		if (url_ok)
-		{
-			FILE *p;
-#ifdef _WIN32
-			// Windows 10 and later ship curl.exe
-			snprintf(cmd, sizeof(cmd), "curl -fsS --max-time 3 \"%s\" 2>nul", url);
-#else
-			// one tool only, otherwise a curl timeout plus a wget timeout doubles the wait
-			snprintf(cmd, sizeof(cmd),
-				"if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 3 '%s'; "
-				"else wget -qO- -T 3 '%s'; fi 2>/dev/null", url, url);
-#endif
-			p = tim_popen(cmd, "r");
-			if (p != NULL)
-			{
-				if (fgets(remote, sizeof(remote), p) != NULL) fetched = 1;
-				tim_pclose(p);
-			}
-		}
-
-		// the downloaded text is checked strictly (digits and dots only) before it is trusted
-		if (fetched)
-		{
-			remote[strcspn(remote, " \t\r\n")] = '\0';
-			used = -1;
-			if (strlen(remote) >= 5 && strlen(remote) <= 15
-				&& strspn(remote, "0123456789.") == strlen(remote)
-				&& sscanf(remote, "%d.%d.%d%n", &rmaj, &rmin, &rpat, &used) == 3
-				&& remote[used] == '\0')
-				valid = 1;
-		}
-		sscanf(TIMSIM_VERSION, "%d.%d.%d", &lmaj, &lmin, &lpat);
-		newer = valid && (rmaj > lmaj || (rmaj == lmaj && (rmin > lmin || (rmin == lmin && rpat > lpat))));
-
-		// remember that we checked (so the automatic check runs once a day)
-		if (cache_file[0] != '\0')
-		{
-			char parent[512];
-			char *slash;
-			FILE *cf;
-			snprintf(parent, sizeof(parent), "%s", cache_dir);
-			slash = strrchr(parent, '/');
-			if (slash != NULL) { *slash = '\0'; tim_mkdir(parent); }
-			tim_mkdir(cache_dir);
-			cf = fopen(cache_file, "w");
-			if (cf != NULL)
-			{
-				fprintf(cf, "%ld %s\n", (long)now, skipped);
-				fclose(cf);
-			}
-		}
-
-		if (!valid)
-		{
-			if (upd_mode)
-			{
-					fprintf(stderr, "%sCould not check for updates (no internet connection, or neither curl nor wget is installed).%s\n", E_RED, E_RESET);
-				return 1;
-			}
-		}
-		else if (!newer)
-		{
-			if (upd_mode)
-			{
-				printf("TimSim is up to date (version %s).\n", TIMSIM_VERSION);
-				return 0;
-			}
-		}
-		else if (upd_mode == 0 && strcmp(skipped, remote) == 0)
-		{
-			// the user already chose to skip this version
-		}
-		else
-		{
-			int do_install = 0;
-			printf("\n*** A new version of TimSim is available: %s -> %s ***\n", TIMSIM_VERSION, remote);
-			printf("    Release page: %s/releases/latest\n", REPO_URL);
-
-			if (upd_mode == 3)
-				do_install = 1;
-			else if (upd_mode == 2)
-			{
-				printf("Run 'timsim --update' to install it.\n");
-				return 4;
-			}
-			else
-			{
-				while (1)
-				{
-					char c;
-					printf("Update now? [y]es / [n]o / [s]kip this version: ");
-					if (fgets(line, sizeof(line), stdin) == NULL)
-					{
-						printf("\n");
-						break;
-					}
-					len = strlen(line);
-					if (len == sizeof(line) - 1 && line[len - 1] != '\n')
-						while ((ch = getchar()) != '\n' && ch != EOF);
-					c = (char)tolower((unsigned char)line[strspn(line, " \t")]);
-					if (c == 'y') { do_install = 1; break; }
-					if (c == 'n' || c == '\n' || c == '\0') break;
-					if (c == 's')
-					{
-						if (cache_file[0] != '\0')
-						{
-							FILE *cf = fopen(cache_file, "w");
-							if (cf != NULL)
-							{
-								fprintf(cf, "%ld %s\n", (long)now, remote);
-								fclose(cf);
-							}
-						}
-						printf("OK, TimSim will not remind you about version %s again.\n", remote);
-						break;
-					}
-					printf("Please answer y, n or s.\n");
-				}
-			}
-
-			if (do_install)
-			{
-				char icmd[1400];
-				const char *iu = getenv("TIMSIM_INSTALL_URL"); // can be changed for testing
-				int iu_ok = 1;
-#ifdef _WIN32
-				if (iu == NULL || iu[0] == '\0') iu = RAW_URL "/install.ps1";
-#else
-				if (iu == NULL || iu[0] == '\0') iu = RAW_URL "/install.sh";
-#endif
-				for (const char *c = iu; *c != '\0'; c++)
-					if (!isalnum((unsigned char)*c) && strchr(URL_SAFE_CHARS, *c) == NULL) iu_ok = 0;
-				if (!iu_ok)
-				{
-					fprintf(stderr, "%stimsim: TIMSIM_INSTALL_URL contains unsafe characters.%s\n", E_RED, E_RESET);
-					return 1;
-				}
-#ifdef _WIN32
-				// PowerShell downloads and runs install.ps1; any failure stops it with a non-zero exit code
-				snprintf(icmd, sizeof(icmd),
-					"powershell -NoProfile -ExecutionPolicy Bypass -Command "
-					"\"$ErrorActionPreference='Stop'; iex (irm '%s')\"", iu);
-#else
-				// the installer is downloaded first, so a failed download can not look like a success
-				snprintf(icmd, sizeof(icmd),
-					"script=$(curl -fsSL '%s' 2>/dev/null || wget -qO- '%s' 2>/dev/null); "
-					"if [ -z \"$script\" ]; then echo 'Error: could not download the installer.' >&2; exit 1; fi; "
-					"PREFIX='%s' sh -c \"$script\"", iu, iu, TIMSIM_PREFIX);
-#endif
-				printf("\nRunning the official installer from GitHub...\n");
-				if (system(icmd) == 0)
-				{
-					printf("\nUpdate finished. Run 'timsim' again to use version %s.\n", remote);
-					return 0;
-				}
-				printf("\n%sUpdate failed. You can try again later with 'timsim --update'.%s\n", E_RED, E_RESET);
-				if (upd_mode) return 1;
-			}
-			printf("\n");
-		}
-	}
-
-	// ===================== Section-5 : Getting the machine =====================
+	// ===================== Section-4 : Getting the machine =====================
 	// Three ways to get a machine: --demo (built in), a machine file, or typing it in.
 	if (demo)
 	{
@@ -1194,7 +937,7 @@ int main(int argc, char *argv[])
 	// --limit always wins over the file and over the prompt
 	if (cli_limit > 0) step_limit = (int)cli_limit;
 
-	// ===================== Section-6 : State validation and warnings =====================
+	// ===================== Section-5 : State validation and warnings =====================
 	// Hard errors were already rejected above (range, duplicates, accept/reject overlap).
 	// What is left can not be proven wrong, so these are warnings only.
 	int warnings = 0;
@@ -1256,7 +999,7 @@ int main(int argc, char *argv[])
 		printf("| Step limit: %d\n", step_limit);
 	}
 
-	// ===================== Section-7 : Execution engine =====================
+	// ===================== Section-6 : Execution engine =====================
 	char tape[TAPE_SIZE];
 	char input[LINE_SIZE];
 
@@ -1369,7 +1112,7 @@ int main(int argc, char *argv[])
 
 		while (1)
 		{
-			// ===================== Section-8 : Output (trace) =====================
+			// ===================== Section-7 : Output (trace) =====================
 			if (show_trace)
 			{
 				if (animate) printf("\r\033[2K");   // back to the start of the line and erase it
@@ -1460,7 +1203,7 @@ int main(int argc, char *argv[])
 		while (first <= last && tape[first] == BLANK) first++;
 		while (last >= first && tape[last] == BLANK) last--;
 
-		// ===================== Section-9 : Output (result) =====================
+		// ===================== Section-8 : Output (result) =====================
 		if (cli_input != NULL && quiet)
 		{
 			// two lines only: the verdict, then the final tape (easy to use in scripts)
